@@ -172,3 +172,130 @@ export interface BpsTradeData {
   description: string;
   data?: Record<string, number>;
 }
+
+/** Infographic */
+export interface BpsInfographic {
+  inf_id: number;
+  title: string;
+  img: string;
+  date: string;
+  desc: string;
+  category: number;
+  dl: string;
+}
+
+/** Infographic Detail */
+export interface BpsInfographicDetail extends BpsInfographic {
+  related?: Array<{
+    id: number;
+    title: string;
+    img: string;
+  }>;
+}
+
+/** News */
+export interface BpsNews {
+  news_id: number;
+  newscat_id: string;
+  newscat_name: string;
+  title: string;
+  news: string;
+  rl_date: string;
+  picture: string;
+}
+
+/** News Detail */
+export interface BpsNewsDetail {
+  news_id: number;
+  news_type: string;
+  newscat_name: string;
+  title: string;
+  news: string;
+  rl_date: string;
+  picture: string;
+  related?: Array<{
+    id: number;
+    title: string;
+  }>;
+}
+
+/** Glossary Term (glosarium) */
+export interface BpsGlossaryTerm {
+  _id: string;
+  _source: {
+    sync_date: string;
+    definisi: string;
+    ukuran: string;
+    sumberKonten: string;
+    sumberData: string;
+    namaKlasifikasi: string;
+    judulIndikator: string;
+    konsep: string;
+    endpoint: string;
+    satuan: string;
+    jenis: string;
+    id: string;
+    flag: boolean;
+  };
+}
+
+/** CSA Subject Category */
+export interface BpsCsaSubjectCategory {
+  subcat_id: number;
+  title: string;
+}
+
+/** CSA Subject */
+export interface BpsCsaSubject {
+  sub_id: number;
+  title: string;
+  subcat_id: number;
+  subcat: string;
+  ntabel: number;
+  desc: string;
+  icon: string;
+}
+
+/** CSA Table (tablestatistic) */
+export interface BpsCsaTable {
+  id: string;
+  title: string;
+  oldest_period: string | null;
+  latest_period: string | null;
+  id_subject: number;
+  subject: string;
+  id_subcat: number;
+  subcat: string;
+  tablesource: string;
+  last_update: string;
+}
+
+/** CSA Table Detail */
+export interface BpsCsaTableDetail {
+  table_id: number;
+  sub_id: number;
+  subcsa_id: number;
+  subcsa: string;
+  title: string;
+  table: string;
+  cr_date: string;
+  updt_date: string;
+  excel?: string;
+  size: string;
+}
+
+/** Census Event */
+export interface BpsCensusEvent {
+  id: string;
+  kegiatan: string;
+  tahun_kegiatan: number;
+}
+
+/** Census Topic */
+export interface BpsCensusTopic {
+  id: number;
+  topik: string;
+  topic: string;
+  id_kegiatan: string;
+  kegiatan: string;
+}

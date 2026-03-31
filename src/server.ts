@@ -12,6 +12,11 @@ import { registerReferenceTools } from "./tools/reference.tools.js";
 import { registerTradeTools } from "./tools/trade.tools.js";
 import { registerSearchTools } from "./tools/search.tools.js";
 import { registerUtilityTools } from "./tools/utility.tools.js";
+import { registerInfographicTools } from "./tools/infographic.tools.js";
+import { registerCensusTools } from "./tools/census.tools.js";
+import { registerCsaTools } from "./tools/csa.tools.js";
+import { registerNewsTools } from "./tools/news.tools.js";
+import { registerGlossaryTools } from "./tools/glossary.tools.js";
 
 export function createServer(
   config: Config,
@@ -26,7 +31,6 @@ export function createServer(
   const client = new BpsClient(auth, cache, config);
   const resolver = new DomainResolver(client);
 
-  // Register all tools
   registerDomainTools(server, client, resolver);
   registerDynamicDataTools(server, client, config);
   registerStaticTableTools(server, client);
@@ -34,6 +38,11 @@ export function createServer(
   registerReferenceTools(server, client);
   registerTradeTools(server, client);
   registerSearchTools(server, client);
+  registerInfographicTools(server, client);
+  registerCensusTools(server, client);
+  registerCsaTools(server, client);
+  registerNewsTools(server, client);
+  registerGlossaryTools(server, client);
   registerUtilityTools(server, cache);
 
   return { server, client, resolver };

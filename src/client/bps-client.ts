@@ -1,7 +1,14 @@
 import type { IAuthProvider } from "../auth/types.js";
 import type { ICacheProvider } from "../services/cache.js";
 import type { Config } from "../config/index.js";
-import { buildUrl, ENDPOINTS } from "./endpoints.js";
+import {
+  buildListUrl,
+  buildViewUrl,
+  buildDomainUrl,
+  buildTradeUrl,
+  buildInteropUrl,
+  MODELS,
+} from "./endpoints.js";
 import type {
   BpsDomain,
   BpsSubject,
@@ -18,6 +25,17 @@ import type {
   BpsPressRelease,
   BpsPublication,
   BpsStrategicIndicator,
+  BpsInfographic,
+  BpsInfographicDetail,
+  BpsNews,
+  BpsNewsDetail,
+  BpsGlossaryTerm,
+  BpsCsaSubjectCategory,
+  BpsCsaSubject,
+  BpsCsaTable,
+  BpsCsaTableDetail,
+  BpsCensusEvent,
+  BpsCensusTopic,
   PageInfo,
 } from "./types.js";
 import { BpsApiError, BpsAuthError, BpsNotFoundError } from "../utils/error.js";
@@ -38,20 +56,8 @@ export class BpsClient {
     this.defaultDomain = config.defaultDomain;
   }
 
-  private async request<T>(endpoint: string, params: Record<string, string | number | undefined> = {}, ttl?: number): Promise<T> {
-    const authParams = await this.auth.getQueryParams();
-    const authHeaders = await this.auth.getHeaders();
-
-    const allParams: Record<string, string | number | undefined> = {
-      ...params,
-      ...authParams,
-      lang: params.lang ?? this.defaultLang,
-    };
-
-    const url = buildUrl(this.baseUrl, endpoint, allParams);
-
+  private async fetchJson<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
     // Check cache
-    const cacheKey = `${endpoint}:${JSON.stringify(allParams)}`;
     if (this.cache && ttl) {
       const cached = await this.cache.get(cacheKey);
       if (cached) {
@@ -62,6 +68,7 @@ export class BpsClient {
 
     logger.debug(`Fetching: ${url}`);
 
+    const authHeaders = await this.auth.getHeaders();
     const res = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -77,7 +84,7 @@ export class BpsClient {
       throw new BpsApiError(
         `BPS API error: ${res.status} ${res.statusText}`,
         res.status,
-        endpoint
+        url
       );
     }
 
@@ -86,7 +93,7 @@ export class BpsClient {
     // BPS API returns status field - check for errors
     const apiResponse = json as Record<string, unknown>;
     if (apiResponse.status === "400" || apiResponse["data-availability"] === "list-not-available") {
-      throw new BpsNotFoundError(endpoint);
+      throw new BpsNotFoundError(cacheKey);
     }
 
     // Cache result
@@ -97,58 +104,99 @@ export class BpsClient {
     return json;
   }
 
+  private async authParams(): Promise<Record<string, string>> {
+    return this.auth.getQueryParams();
+  }
+
+  /**
+   * Perform a list request: /api/list/model/{model}/...
+   */
+  private async listRequest<T>(
+    model: string,
+    params: Record<string, string | number | undefined>,
+    ttl?: number
+  ): Promise<T> {
+    const auth = await this.authParams();
+    const allParams: Record<string, string | number | undefined> = {
+      domain: params.domain ?? this.defaultDomain,
+      ...params,
+      lang: params.lang ?? this.defaultLang,
+      ...auth,
+    };
+
+    const url = buildListUrl(this.baseUrl, model, allParams);
+    const cacheKey = `list:${model}:${JSON.stringify(allParams)}`;
+    return this.fetchJson<T>(url, cacheKey, ttl);
+  }
+
+  /**
+   * Perform a view request: /api/view/model/{model}/...
+   */
+  private async viewRequest<T>(
+    model: string,
+    params: Record<string, string | number | undefined>,
+    ttl?: number
+  ): Promise<T> {
+    const auth = await this.authParams();
+    const allParams: Record<string, string | number | undefined> = {
+      domain: params.domain ?? this.defaultDomain,
+      ...params,
+      lang: params.lang ?? this.defaultLang,
+      ...auth,
+    };
+
+    const url = buildViewUrl(this.baseUrl, model, allParams);
+    const cacheKey = `view:${model}:${JSON.stringify(allParams)}`;
+    return this.fetchJson<T>(url, cacheKey, ttl);
+  }
+
+  private extractPaginated<T>(res: { data: [PageInfo, T[]] }): { data: T[]; page?: PageInfo } {
+    if (Array.isArray(res.data) && res.data.length === 2 && typeof res.data[0] === "object" && "page" in res.data[0]) {
+      return { data: res.data[1], page: res.data[0] };
+    }
+    // Fallback: data might be a flat array in some edge cases
+    return { data: (res.data as unknown as T[]) ?? [] };
+  }
+
   // ========== Domain ==========
 
   async listDomains(
     type: "all" | "prov" | "kab" | "kabbyprov" = "all",
     provId?: string
   ): Promise<{ data: BpsDomain[]; page?: PageInfo }> {
+    const auth = await this.authParams();
     const params: Record<string, string | number | undefined> = {
       type,
       prov: provId,
+      lang: this.defaultLang,
+      ...auth,
     };
 
-    const res = await this.request<{ data: [PageInfo, BpsDomain[]] }>(
-      ENDPOINTS.DOMAIN_LIST,
-      params,
-      24 * 60 * 60
-    );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsDomain[]) ?? [] };
+    const url = buildDomainUrl(this.baseUrl, params);
+    const cacheKey = `domain:${JSON.stringify(params)}`;
+    const res = await this.fetchJson<{ data: [PageInfo, BpsDomain[]] }>(url, cacheKey, 24 * 60 * 60);
+    return this.extractPaginated(res);
   }
 
   // ========== Subjects ==========
 
   async listSubjects(domain?: string, subcat?: number): Promise<{ data: BpsSubject[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsSubject[]] }>(
-      ENDPOINTS.SUBJECT_LIST,
-      { domain: domain ?? this.defaultDomain, subcat },
+    const res = await this.listRequest<{ data: [PageInfo, BpsSubject[]] }>(
+      MODELS.SUBJECT,
+      { domain, subcat },
       24 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsSubject[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   async listSubjectCategories(domain?: string): Promise<BpsSubjectCategory[]> {
-    const res = await this.request<{ data: [PageInfo, BpsSubjectCategory[]] }>(
-      ENDPOINTS.SUBJECT_CATEGORY_LIST,
-      { domain: domain ?? this.defaultDomain },
+    const res = await this.listRequest<{ data: [PageInfo, BpsSubjectCategory[]] }>(
+      MODELS.SUBJECT_CATEGORY,
+      { domain },
       24 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsSubjectCategory[]) ?? [];
+    const result = this.extractPaginated(res);
+    return result.data;
   }
 
   // ========== Variables ==========
@@ -160,93 +208,57 @@ export class BpsClient {
     page?: number,
     perPage?: number
   ): Promise<{ data: BpsVariable[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsVariable[]] }>(
-      ENDPOINTS.VARIABLE_LIST,
-      {
-        domain: domain ?? this.defaultDomain,
-        subject,
-        year,
-        page,
-        perpage: perPage,
-      },
+    const res = await this.listRequest<{ data: [PageInfo, BpsVariable[]] }>(
+      MODELS.VARIABLE,
+      { domain, subject, year, page, perpage: perPage },
       12 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsVariable[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   async listVerticalVariables(domain?: string, varId?: number): Promise<BpsVerticalVariable[]> {
-    const res = await this.request<{ data: [PageInfo, BpsVerticalVariable[]] }>(
-      ENDPOINTS.VERTICAL_VARIABLE_LIST,
-      { domain: domain ?? this.defaultDomain, var: varId },
+    const res = await this.listRequest<{ data: [PageInfo, BpsVerticalVariable[]] }>(
+      MODELS.VERTICAL_VARIABLE,
+      { domain, var: varId },
       12 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsVerticalVariable[]) ?? [];
+    return this.extractPaginated(res).data;
   }
 
   async listDerivedVariables(domain?: string, varId?: number): Promise<BpsDerivedVariable[]> {
-    const res = await this.request<{ data: [PageInfo, BpsDerivedVariable[]] }>(
-      ENDPOINTS.DERIVED_VARIABLE_LIST,
-      { domain: domain ?? this.defaultDomain, var: varId },
+    const res = await this.listRequest<{ data: [PageInfo, BpsDerivedVariable[]] }>(
+      MODELS.DERIVED_VARIABLE,
+      { domain, var: varId },
       12 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsDerivedVariable[]) ?? [];
+    return this.extractPaginated(res).data;
   }
 
   async listPeriods(domain?: string, varId?: number): Promise<BpsPeriod[]> {
-    const res = await this.request<{ data: [PageInfo, BpsPeriod[]] }>(
-      ENDPOINTS.PERIOD_LIST,
-      { domain: domain ?? this.defaultDomain, var: varId },
+    const res = await this.listRequest<{ data: [PageInfo, BpsPeriod[]] }>(
+      MODELS.PERIOD,
+      { domain, var: varId },
       12 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsPeriod[]) ?? [];
+    return this.extractPaginated(res).data;
   }
 
   async listDerivedPeriods(domain?: string, varId?: number): Promise<BpsDerivedPeriod[]> {
-    const res = await this.request<{ data: [PageInfo, BpsDerivedPeriod[]] }>(
-      ENDPOINTS.DERIVED_PERIOD_LIST,
-      { domain: domain ?? this.defaultDomain, var: varId },
+    const res = await this.listRequest<{ data: [PageInfo, BpsDerivedPeriod[]] }>(
+      MODELS.DERIVED_PERIOD,
+      { domain, var: varId },
       12 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsDerivedPeriod[]) ?? [];
+    return this.extractPaginated(res).data;
   }
 
   async listUnits(domain?: string): Promise<BpsUnit[]> {
-    const res = await this.request<{ data: [PageInfo, BpsUnit[]] }>(
-      ENDPOINTS.UNIT_LIST,
-      { domain: domain ?? this.defaultDomain },
+    const res = await this.listRequest<{ data: [PageInfo, BpsUnit[]] }>(
+      MODELS.UNIT,
+      { domain },
       24 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return res.data[1];
-    }
-
-    return (res.data as unknown as BpsUnit[]) ?? [];
+    return this.extractPaginated(res).data;
   }
 
   // ========== Dynamic Data ==========
@@ -259,13 +271,11 @@ export class BpsClient {
     vervar?: string,
     turth?: string
   ): Promise<BpsDynamicDataResponse> {
-    const res = await this.request<BpsDynamicDataResponse>(
-      ENDPOINTS.DYNAMIC_DATA,
+    return this.listRequest<BpsDynamicDataResponse>(
+      MODELS.DATA,
       { domain, var: varId, th, turvar, vervar, turth },
       60 * 60
     );
-
-    return res;
   }
 
   // ========== Static Tables ==========
@@ -277,32 +287,20 @@ export class BpsClient {
     month?: number,
     page?: number
   ): Promise<{ data: BpsStaticTable[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsStaticTable[]] }>(
-      ENDPOINTS.STATIC_TABLE_LIST,
-      {
-        domain: domain ?? this.defaultDomain,
-        keyword,
-        year,
-        month,
-        page,
-      },
+    const res = await this.listRequest<{ data: [PageInfo, BpsStaticTable[]] }>(
+      MODELS.STATIC_TABLE,
+      { domain, keyword, year, month, page },
       6 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsStaticTable[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   async getStaticTable(domain: string, id: number): Promise<BpsStaticTableDetail> {
-    const res = await this.request<{ data: BpsStaticTableDetail }>(
-      ENDPOINTS.STATIC_TABLE_DETAIL,
+    const res = await this.viewRequest<{ data: BpsStaticTableDetail }>(
+      MODELS.STATIC_TABLE,
       { domain, id },
       6 * 60 * 60
     );
-
     return res.data;
   }
 
@@ -315,32 +313,20 @@ export class BpsClient {
     month?: number,
     page?: number
   ): Promise<{ data: BpsPressRelease[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsPressRelease[]] }>(
-      ENDPOINTS.PRESS_RELEASE_LIST,
-      {
-        domain: domain ?? this.defaultDomain,
-        keyword,
-        year,
-        month,
-        page,
-      },
+    const res = await this.listRequest<{ data: [PageInfo, BpsPressRelease[]] }>(
+      MODELS.PRESS_RELEASE,
+      { domain, keyword, year, month, page },
       30 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsPressRelease[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   async getPressRelease(domain: string, id: number): Promise<BpsPressRelease> {
-    const res = await this.request<{ data: BpsPressRelease }>(
-      ENDPOINTS.PRESS_RELEASE_DETAIL,
+    const res = await this.viewRequest<{ data: BpsPressRelease }>(
+      MODELS.PRESS_RELEASE,
       { domain, id },
       30 * 60
     );
-
     return res.data;
   }
 
@@ -353,32 +339,20 @@ export class BpsClient {
     month?: number,
     page?: number
   ): Promise<{ data: BpsPublication[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsPublication[]] }>(
-      ENDPOINTS.PUBLICATION_LIST,
-      {
-        domain: domain ?? this.defaultDomain,
-        keyword,
-        year,
-        month,
-        page,
-      },
+    const res = await this.listRequest<{ data: [PageInfo, BpsPublication[]] }>(
+      MODELS.PUBLICATION,
+      { domain, keyword, year, month, page },
       6 * 60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsPublication[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   async getPublication(domain: string, id: string): Promise<BpsPublication> {
-    const res = await this.request<{ data: BpsPublication }>(
-      ENDPOINTS.PUBLICATION_DETAIL,
+    const res = await this.viewRequest<{ data: BpsPublication }>(
+      MODELS.PUBLICATION,
       { domain, id },
       6 * 60 * 60
     );
-
     return res.data;
   }
 
@@ -389,17 +363,12 @@ export class BpsClient {
     varId?: number,
     page?: number
   ): Promise<{ data: BpsStrategicIndicator[]; page?: PageInfo }> {
-    const res = await this.request<{ data: [PageInfo, BpsStrategicIndicator[]] }>(
-      ENDPOINTS.STRATEGIC_INDICATOR_LIST,
-      { domain: domain ?? this.defaultDomain, var: varId, page },
+    const res = await this.listRequest<{ data: [PageInfo, BpsStrategicIndicator[]] }>(
+      MODELS.STRATEGIC_INDICATOR,
+      { domain, var: varId, page },
       60 * 60
     );
-
-    if (Array.isArray(res.data) && res.data.length === 2) {
-      return { data: res.data[1], page: res.data[0] };
-    }
-
-    return { data: (res.data as unknown as BpsStrategicIndicator[]) ?? [] };
+    return this.extractPaginated(res);
   }
 
   // ========== Trade ==========
@@ -411,11 +380,143 @@ export class BpsClient {
     year: string,
     period: string
   ): Promise<unknown> {
-    return this.request(
-      ENDPOINTS.TRADE_DATA,
-      { sumber: source, kodeHS: hsCode, jenisHS: hsType, tahun: year, periode: period },
-      60 * 60
+    const auth = await this.authParams();
+    const params: Record<string, string | number | undefined> = {
+      sumber: source,
+      kodehs: hsCode,
+      jenishs: hsType,
+      tahun: year,
+      periode: period,
+      lang: this.defaultLang,
+      ...auth,
+    };
+
+    const url = buildTradeUrl(this.baseUrl, params);
+    const cacheKey = `trade:${JSON.stringify(params)}`;
+    return this.fetchJson(url, cacheKey, 60 * 60);
+  }
+
+  // ========== Infographics ==========
+
+  async listInfographics(
+    domain?: string,
+    keyword?: string,
+    page?: number
+  ): Promise<{ data: BpsInfographic[]; page?: PageInfo }> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsInfographic[]] }>(
+      MODELS.INFOGRAPHIC,
+      { domain, keyword, page },
+      6 * 60 * 60
     );
+    return this.extractPaginated(res);
+  }
+
+  async getInfographic(domain: string, id: number): Promise<BpsInfographicDetail> {
+    const res = await this.viewRequest<{ data: BpsInfographicDetail }>(
+      MODELS.INFOGRAPHIC,
+      { domain, id },
+      6 * 60 * 60
+    );
+    return res.data;
+  }
+
+  // ========== News ==========
+
+  async listNews(
+    domain?: string,
+    keyword?: string,
+    page?: number
+  ): Promise<{ data: BpsNews[]; page?: PageInfo }> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsNews[]] }>(
+      MODELS.NEWS,
+      { domain, keyword, page },
+      30 * 60
+    );
+    return this.extractPaginated(res);
+  }
+
+  async getNews(domain: string, id: number): Promise<BpsNewsDetail> {
+    const res = await this.viewRequest<{ data: BpsNewsDetail }>(
+      MODELS.NEWS,
+      { domain, id },
+      30 * 60
+    );
+    return res.data;
+  }
+
+  // ========== Glossary (Glosarium) ==========
+
+  async listGlossary(
+    domain?: string,
+    keyword?: string,
+    page?: number
+  ): Promise<{ data: BpsGlossaryTerm[]; page?: PageInfo }> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsGlossaryTerm[]] }>(
+      MODELS.GLOSSARY,
+      { domain, keyword, page },
+      24 * 60 * 60
+    );
+    return this.extractPaginated(res);
+  }
+
+  // ========== CSA (Classification of Statistical Activities) ==========
+
+  async listCsaSubjectCategories(domain?: string): Promise<BpsCsaSubjectCategory[]> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsCsaSubjectCategory[]] }>(
+      MODELS.CSA_SUBJECT_CATEGORY,
+      { domain },
+      24 * 60 * 60
+    );
+    return this.extractPaginated(res).data;
+  }
+
+  async listCsaSubjects(domain?: string, subcat?: number): Promise<{ data: BpsCsaSubject[]; page?: PageInfo }> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsCsaSubject[]] }>(
+      MODELS.CSA_SUBJECT,
+      { domain, subcat },
+      24 * 60 * 60
+    );
+    return this.extractPaginated(res);
+  }
+
+  async listCsaTables(
+    domain?: string,
+    subject?: number,
+    page?: number
+  ): Promise<{ data: BpsCsaTable[]; page?: PageInfo }> {
+    const res = await this.listRequest<{ data: [PageInfo, BpsCsaTable[]] }>(
+      MODELS.CSA_TABLE,
+      { domain, subject, page },
+      6 * 60 * 60
+    );
+    return this.extractPaginated(res);
+  }
+
+  async getCsaTable(domain: string, id: string): Promise<BpsCsaTableDetail> {
+    const res = await this.viewRequest<{ data: BpsCsaTableDetail }>(
+      MODELS.CSA_TABLE,
+      { domain, id },
+      6 * 60 * 60
+    );
+    return res.data;
+  }
+
+  // ========== Census (Sensus) via Interoperabilitas ==========
+
+  async listCensusEvents(): Promise<BpsCensusEvent[]> {
+    const auth = await this.authParams();
+    const url = buildInteropUrl(this.baseUrl, "sensus", { id: 37, ...auth });
+    const cacheKey = `census:events`;
+    const res = await this.fetchJson<{ data: [PageInfo, BpsCensusEvent[]] }>(url, cacheKey, 24 * 60 * 60);
+    return this.extractPaginated(res).data;
+  }
+
+  async listCensusTopics(kegiatan: string): Promise<BpsCensusTopic[]> {
+    const auth = await this.authParams();
+    const url = buildInteropUrl(this.baseUrl, "sensus", { id: 38, kegiatan, ...auth });
+    const cacheKey = `census:topics:${kegiatan}`;
+    const res = await this.fetchJson<{ data: [PageInfo, BpsCensusTopic[]] }>(url, cacheKey, 24 * 60 * 60);
+    return this.extractPaginated(res).data;
   }
 
   // ========== Search ==========
@@ -423,13 +524,15 @@ export class BpsClient {
   async search(
     domain: string,
     keyword: string,
-    type?: string,
+    model?: string,
     page?: number
-  ): Promise<unknown> {
-    return this.request(
-      ENDPOINTS.SEARCH,
-      { domain, keyword, type, page },
+  ): Promise<{ data: unknown[]; page?: PageInfo }> {
+    const listModel = model ?? MODELS.STATIC_TABLE;
+    const res = await this.listRequest<{ data: [PageInfo, unknown[]] }>(
+      listModel,
+      { domain, keyword, page },
       30 * 60
     );
+    return this.extractPaginated(res);
   }
 }
