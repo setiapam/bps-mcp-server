@@ -1,0 +1,49 @@
+{
+  "name": "bps-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for BPS (Badan Pusat Statistik) Indonesia statistics data",
+  "author": "Murphi",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "bps-mcp-server": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "bps",
+    "statistics",
+    "indonesia",
+    "model-context-protocol",
+    "ai",
+    "claude",
+    "data"
+  ]
+}
