@@ -1,0 +1,15 @@
+name = "bps-mcp-server"
+main = "src/worker.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+BPS_API_BASE_URL = "https://webapi.bps.go.id/v1"
+BPS_DEFAULT_LANG = "ind"
+BPS_DEFAULT_DOMAIN = "0000"
+
+# KV namespace for caching — create with: wrangler kv namespace create BPS_CACHE
+# Then replace the id below with the actual ID from the output
+[[kv_namespaces]]
+binding = "BPS_CACHE"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
