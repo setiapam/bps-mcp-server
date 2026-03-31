@@ -4,6 +4,14 @@
   "description": "MCP server for BPS (Badan Pusat Statistik) Indonesia statistics data",
   "author": "Murphi",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/setiapam/bps-mcp-server.git"
+  },
+  "homepage": "https://github.com/setiapam/bps-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/setiapam/bps-mcp-server/issues"
+  },
   "type": "module",
   "bin": {
     "bps-mcp-server": "./dist/index.js"
