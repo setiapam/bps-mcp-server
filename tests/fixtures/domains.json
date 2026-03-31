@@ -1,0 +1,12 @@
+[
+  { "domain_id": "0000", "domain_name": "Indonesia", "domain_url": "https://www.bps.go.id" },
+  { "domain_id": "3100", "domain_name": "DKI Jakarta", "domain_url": "https://jakarta.bps.go.id" },
+  { "domain_id": "3200", "domain_name": "Jawa Barat", "domain_url": "https://jabar.bps.go.id" },
+  { "domain_id": "3300", "domain_name": "Jawa Tengah", "domain_url": "https://jateng.bps.go.id" },
+  { "domain_id": "3400", "domain_name": "DI Yogyakarta", "domain_url": "https://jogja.bps.go.id" },
+  { "domain_id": "3500", "domain_name": "Jawa Timur", "domain_url": "https://jatim.bps.go.id" },
+  { "domain_id": "3600", "domain_name": "Banten", "domain_url": "https://banten.bps.go.id" },
+  { "domain_id": "5100", "domain_name": "Bali", "domain_url": "https://bali.bps.go.id" },
+  { "domain_id": "1100", "domain_name": "Aceh", "domain_url": "https://aceh.bps.go.id" },
+  { "domain_id": "1200", "domain_name": "Sumatera Utara", "domain_url": "https://sumut.bps.go.id" }
+]

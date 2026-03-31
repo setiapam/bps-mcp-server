@@ -17,6 +17,8 @@ import { registerCensusTools } from "./tools/census.tools.js";
 import { registerCsaTools } from "./tools/csa.tools.js";
 import { registerNewsTools } from "./tools/news.tools.js";
 import { registerGlossaryTools } from "./tools/glossary.tools.js";
+import { registerResources } from "./resources/domain.resources.js";
+import { registerPrompts } from "./prompts/analysis.prompts.js";
 
 export function createServer(
   config: Config,
@@ -44,6 +46,9 @@ export function createServer(
   registerNewsTools(server, client);
   registerGlossaryTools(server, client);
   registerUtilityTools(server, cache);
+
+  registerResources(server, client, resolver);
+  registerPrompts(server);
 
   return { server, client, resolver };
 }

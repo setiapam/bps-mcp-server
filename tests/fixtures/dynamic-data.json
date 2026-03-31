@@ -1,0 +1,25 @@
+{
+  "status": "OK",
+  "data-availability": "available",
+  "datacontent": {
+    "110011211": 270203,
+    "110011212": 272229,
+    "110011213": 275773
+  },
+  "var": [
+    { "var_id": 1100, "title": "Jumlah Penduduk", "sub_id": 12, "sub_name": "Kependudukan", "unit": "Jiwa" }
+  ],
+  "vervar": [
+    { "kode_vervar": 1, "label_vervar": "Laki-laki", "group_vervar": 1, "name_group_vervar": "Jenis Kelamin" },
+    { "kode_vervar": 2, "label_vervar": "Perempuan", "group_vervar": 1, "name_group_vervar": "Jenis Kelamin" }
+  ],
+  "turvar": [],
+  "tahun": [
+    { "th_id": 211, "th_name": "2021", "val": 2021 },
+    { "th_id": 212, "th_name": "2022", "val": 2022 },
+    { "th_id": 213, "th_name": "2023", "val": 2023 }
+  ],
+  "turtahun": [],
+  "data": null,
+  "message": ""
+}

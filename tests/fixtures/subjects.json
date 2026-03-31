@@ -1,0 +1,5 @@
+[
+  { "sub_id": 1, "title": "Sosial dan Kependudukan", "subcat_id": 1, "subcat": "Kependudukan", "ntabel": 45, "nvar": 120 },
+  { "sub_id": 2, "title": "Ekonomi dan Perdagangan", "subcat_id": 2, "subcat": "Ekonomi", "ntabel": 38, "nvar": 95 },
+  { "sub_id": 3, "title": "Pertanian dan Pertambangan", "subcat_id": 3, "subcat": "Pertanian", "ntabel": 22, "nvar": 60 }
+]

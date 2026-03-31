@@ -1,10 +1,16 @@
 # BPS MCP Server
 
+[![CI](https://github.com/murphi/bps-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/murphi/bps-mcp-server/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+
 MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statistik) Indonesia. Memungkinkan AI clients seperti Claude Desktop, Claude Code, Cursor, dan lainnya untuk mengakses data statistik resmi Indonesia melalui natural language.
 
 ## Fitur
 
-- **20+ tools** mencakup seluruh endpoint BPS API v1
+- **32 tools** mencakup seluruh endpoint BPS API v1
+- **3 MCP Resources** — domain list, kabupaten per provinsi, subjek per domain
+- **5 MCP Prompts** — template analisis data siap pakai
 - **Domain resolver** dengan fuzzy matching (ketik "Jatim" → Jawa Timur)
 - **Data formatter** yang mengubah raw BPS data menjadi format mudah dibaca
 - **In-memory cache** dengan TTL per tipe data
@@ -95,12 +101,12 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 }
 ```
 
-## Tools
+## Tools (32)
 
 | Tool | Deskripsi |
 |------|-----------|
 | `list_domains` | Daftar wilayah (provinsi, kab/kota) |
-| `resolve_domain` | Konversi nama wilayah → kode domain |
+| `resolve_domain` | Konversi nama wilayah → kode domain (fuzzy matching) |
 | `list_subjects` | Daftar subjek data statistik |
 | `list_subject_categories` | Kategori subjek |
 | `list_variables` | Daftar variabel tabel dinamis |
@@ -112,14 +118,43 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `get_dynamic_data` | **Core** — Ambil data tabel dinamis |
 | `list_static_tables` | Daftar tabel statis |
 | `get_static_table` | Detail tabel statis (HTML) |
-| `list_press_releases` | Daftar Berita Resmi Statistik |
+| `list_press_releases` | Daftar Berita Resmi Statistik (BRS) |
 | `get_press_release` | Detail BRS |
 | `list_publications` | Daftar publikasi |
 | `get_publication` | Detail publikasi |
 | `list_strategic_indicators` | Indikator strategis |
-| `get_trade_data` | Data ekspor/impor |
+| `get_trade_data` | Data ekspor/impor berdasarkan kode HS |
+| `list_infographics` | Daftar infografis BPS |
+| `get_infographic` | Detail infografis |
+| `list_news` | Daftar berita BPS |
+| `get_news` | Detail berita |
+| `list_census_events` | Daftar kegiatan sensus |
+| `list_census_topics` | Topik data per kegiatan sensus |
+| `list_csa_categories` | Kategori CSA |
+| `list_csa_subjects` | Subjek CSA per domain |
+| `list_csa_tables` | Tabel CSA per subjek |
+| `get_csa_table` | Detail tabel CSA (HTML) |
+| `list_glossary` | Glosarium istilah statistik |
 | `search` | Pencarian lintas tipe |
 | `cache_clear` | Bersihkan cache |
+
+## Resources (3)
+
+| URI | Deskripsi |
+|-----|-----------|
+| `bps://domains/provinces` | Daftar seluruh provinsi Indonesia (cached) |
+| `bps://domains/regencies/{prov_id}` | Kabupaten/kota per provinsi |
+| `bps://subjects/{domain}` | Subjek statistik per domain |
+
+## Prompts (5)
+
+| Prompt | Deskripsi |
+|--------|-----------|
+| `compare_regions` | Bandingkan data antara dua wilayah |
+| `trend_analysis` | Analisis tren data multi-tahun |
+| `poverty_profile` | Profil kemiskinan suatu wilayah |
+| `economic_overview` | Ringkasan ekonomi wilayah |
+| `population_stats` | Statistik kependudukan |
 
 ## Contoh Query
 
@@ -141,6 +176,16 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `BPS_CACHE_ENABLED` | `true` | Aktifkan cache |
 | `BPS_CACHE_MAX_ENTRIES` | `500` | Maks entri cache |
 | `BPS_LOG_LEVEL` | `info` | Level log: debug/info/warn/error |
+
+## Development
+
+```bash
+git clone https://github.com/murphi/bps-mcp-server
+cd bps-mcp-server
+npm install
+npm run build
+npm run test:unit
+```
 
 ## Atribusi
 
