@@ -43,20 +43,20 @@ BPS_API_KEY=your_key npm start
 
 ## Akses Remote via Cloudflare Workers
 
-Deploy sebagai serverless worker untuk akses remote tanpa instalasi Node.js lokal:
+Server ini tersedia secara publik di:
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/setiapam/bps-mcp-server)
+```
+https://bps-mcp-server.murphi.my.id/mcp
+```
 
-Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md).
-
-Setelah deploy, tambahkan ke MCP client via remote transport:
+Tambahkan ke MCP client manapun (Claude Desktop, Cursor, dll.) via remote transport:
 
 ```json
 {
   "mcpServers": {
     "bps-statistics": {
       "type": "http",
-      "url": "https://bps-mcp-server.<your-subdomain>.workers.dev/mcp",
+      "url": "https://bps-mcp-server.murphi.my.id/mcp",
       "headers": {
         "X-BPS-API-Key": "your_api_key_here"
       }
@@ -64,6 +64,14 @@ Setelah deploy, tambahkan ke MCP client via remote transport:
   }
 }
 ```
+
+### Self-hosted
+
+Ingin deploy sendiri? Deploy sebagai serverless worker di akun Cloudflare kamu:
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/setiapam/bps-mcp-server)
+
+Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md).
 
 ## Konfigurasi MCP Client
 
