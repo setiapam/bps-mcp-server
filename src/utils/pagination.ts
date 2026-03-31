@@ -10,7 +10,7 @@ export async function fetchAllPages<T>(
 ): Promise<T[]> {
   const allData: T[] = [];
   let page = 1;
-  let totalPages = 1;
+  let totalPages: number;
 
   do {
     const result = await fetcher(page);

@@ -3,7 +3,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
 import { formatDynamicData, formatList } from "../services/data-formatter.js";
-import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
 
 export function registerDynamicDataTools(server: McpServer, client: BpsClient, config: Config): void {

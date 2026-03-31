@@ -10,7 +10,7 @@ function firstValue(v: string | string[]): string {
 export function registerResources(
   server: McpServer,
   client: BpsClient,
-  resolver: DomainResolver
+  _resolver: DomainResolver
 ): void {
   server.resource(
     "provinces",
