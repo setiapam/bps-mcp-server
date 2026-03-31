@@ -12,4 +12,4 @@ BPS_DEFAULT_DOMAIN = "0000"
 # Then replace the id below with the actual ID from the output
 [[kv_namespaces]]
 binding = "BPS_CACHE"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "847d3de768034a58ba48bc6f637f70df"
