@@ -57,7 +57,7 @@ export class DomainResolver {
       return this.resolveCache.get(q)!;
     }
 
-    const result = this.resolveUncached(q);
+    const result = this.resolveUncached(q, query);
 
     // Cache the result (LRU eviction when full)
     if (this.resolveCache.size >= RESOLVE_CACHE_MAX) {
@@ -71,7 +71,7 @@ export class DomainResolver {
     return result;
   }
 
-  private resolveUncached(q: string): { domainId: string; domainName: string } | null {
+  private resolveUncached(q: string, originalQuery: string): { domainId: string; domainName: string } | null {
     // 1. Direct code match (O(1) via Map)
     const byCode = this.codeIndex.get(q);
     if (byCode) return { domainId: byCode.domain_id, domainName: byCode.domain_name };
@@ -81,7 +81,7 @@ export class DomainResolver {
     if (aliasId) {
       const byAlias = this.codeIndex.get(aliasId);
       if (byAlias) return { domainId: byAlias.domain_id, domainName: byAlias.domain_name };
-      return { domainId: aliasId, domainName: q };
+      return { domainId: aliasId, domainName: originalQuery };
     }
 
     // 3. Exact name match

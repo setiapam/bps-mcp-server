@@ -182,7 +182,7 @@ describe("BpsClient", () => {
       const client = new BpsClient(auth, null, createConfig());
 
       await expect(client.listSubjects("0000")).rejects.toThrow(BpsApiError);
-      // 3 retries total
+      // 3 total attempts (1 initial + 2 retries)
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
   });
