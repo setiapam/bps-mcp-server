@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "cheerio": "^1.2.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {

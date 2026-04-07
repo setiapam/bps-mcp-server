@@ -19,6 +19,8 @@ export const CACHE_TTL = {
   PRESS_RELEASE: 30 * 60,
   PUBLICATION: 6 * 60 * 60,
   STRATEGIC_INDICATOR: 1 * 60 * 60,
+  ALLSTATS_SEARCH: 30 * 60,
+  ALLSTATS_DEEP_SEARCH: 60 * 60,
 } as const;
 
 export const ATTRIBUTION =

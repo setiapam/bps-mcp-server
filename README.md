@@ -8,7 +8,9 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 
 ## Fitur
 
-- **32 tools** mencakup seluruh endpoint BPS API v1
+- **34 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search
+- **Integrasi AllStats Search** — pencarian unified + full-text PDF search (tanpa API key)
+- **Smart fallback** — WebAPI search otomatis fallback ke AllStats jika tidak ada hasil
 - **3 MCP Resources** — domain list, kabupaten per provinsi, subjek per domain
 - **5 MCP Prompts** — template analisis data siap pakai
 - **Domain resolver** dengan fuzzy matching (ketik "Jatim" → Jawa Timur)
@@ -133,7 +135,9 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 }
 ```
 
-## Tools (32)
+## Tools (34)
+
+### WebAPI Tools (32)
 
 | Tool | Deskripsi |
 |------|-----------|
@@ -167,8 +171,81 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `list_csa_tables` | Tabel CSA per subjek |
 | `get_csa_table` | Detail tabel CSA (HTML) |
 | `list_glossary` | Glosarium istilah statistik |
-| `search` | Pencarian lintas tipe |
+| `search` | Pencarian lintas tipe (WebAPI + AllStats fallback) |
 | `cache_clear` | Bersihkan cache |
+
+### AllStats Search Tools (2)
+
+| Tool | Deskripsi |
+|------|-----------|
+| `allstats_search` | Pencarian unified semua konten BPS (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi) |
+| `allstats_deep_search` | Full-text search di dalam isi PDF publikasi BPS — **fitur unik, tidak tersedia di WebAPI** |
+
+## Integrasi AllStats Search
+
+Server ini mengintegrasikan dua sumber data yang saling melengkapi:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    BPS MCP Server                        │
+│                                                         │
+│  ┌──────────────────┐    ┌────────────────────────┐     │
+│  │   WebAPI BPS      │    │  AllStats Search        │     │
+│  │   (Primary)       │    │  (Supplementary)        │     │
+│  │                   │    │                          │     │
+│  │  + Structured     │    │  + Full-text PDF search  │     │
+│  │    data (JSON)    │    │  + Unified search        │     │
+│  │  + Dynamic tables │    │    semua tipe konten     │     │
+│  │  + Ekspor/Impor   │    │  + Tanpa API key         │     │
+│  │  + Sensus data    │    │  + Filter wilayah 550+   │     │
+│  │  - No PDF search  │    │  - HTML scraping         │     │
+│  └──────────────────┘    └────────────────────────┘     │
+│                                                         │
+│  Strategi interaksi:                                    │
+│  1. search → WebAPI dulu, fallback AllStats jika kosong │
+│  2. allstats_search → langsung ke AllStats Search       │
+│  3. allstats_deep_search → cari teks di dalam PDF       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Cara Kerja
+
+**`search` (smart fallback)**
+- Prioritas: WebAPI BPS (structured JSON)
+- Jika WebAPI mengembalikan hasil kosong atau error, otomatis fallback ke AllStats Search
+- User mendapat notifikasi sumber data yang digunakan
+
+**`allstats_search` (unified discovery)**
+- Langsung query ke `searchengine.web.bps.go.id`
+- Mendukung filter: tipe konten, wilayah, rentang tahun, urutan
+- Tidak memerlukan API key BPS
+- Cocok untuk discovery atau pencarian broad
+
+**`allstats_deep_search` (PDF full-text)**
+- Cari teks di dalam isi PDF publikasi BPS
+- Memerlukan `publication_id` (24 karakter hex) dari hasil `allstats_search`
+- Mengembalikan halaman PDF yang cocok beserta cuplikan teks
+- Fitur unik yang tidak tersedia di WebAPI
+
+### Workflow Contoh
+
+```
+1. Discovery → Deep Search:
+   allstats_search("akses internet", content="publication")
+   → dapat publication_id
+   → allstats_deep_search("akses internet", publication_id="131385d0253c6aae7c7a59fa")
+   → halaman PDF yang membahas "akses internet"
+
+2. Smart fallback:
+   search(keyword="kemiskinan Papua")
+   → WebAPI kosong → otomatis cari via AllStats
+   → hasil dari AllStats ditampilkan dengan catatan fallback
+
+3. Parallel enrichment (oleh AI):
+   - get_dynamic_data → data angka terstruktur
+   - allstats_search("inflasi", content="pressrelease") → BRS terbaru
+   → AI menggabungkan data angka + konteks dari BRS
+```
 
 ## Resources (3)
 
@@ -195,6 +272,8 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 "Bandingkan angka kemiskinan Jawa Timur vs Jawa Barat 2020-2023"
 "Cari BRS terbaru tentang inflasi"
 "Data ekspor kopi Indonesia tahun 2024"
+"Cari publikasi tentang statistik telekomunikasi"
+"Cari teks tentang akses internet di dalam publikasi BPS"
 ```
 
 ## Environment Variables
