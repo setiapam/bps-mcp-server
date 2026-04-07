@@ -39,10 +39,17 @@ export function formatDynamicData(
   const periodMap = buildMap(response.tahun, (v) => [String(v.th_id), v]);
   const turthMap = buildMap(response.turtahun, (v) => [String(v.turth_id), v]);
 
+  // Pre-sort keys longest-first (once) for efficient matching across all datacontent entries
+  const varKeys = sortedKeys(varMap);
+  const vervarKeys = sortedKeys(vervarMap);
+  const turvarKeys = sortedKeys(turvarMap);
+  const periodKeys = sortedKeys(periodMap);
+  const turthKeys = sortedKeys(turthMap);
+
   const rows: FormattedRow[] = [];
 
   for (const [key, value] of Object.entries(datacontent)) {
-    const row = resolveDatacontentKey(key, value, varMap, vervarMap, turvarMap, periodMap, turthMap);
+    const row = resolveDatacontentKey(key, value, varMap, varKeys, vervarMap, vervarKeys, turvarMap, turvarKeys, periodMap, periodKeys, turthMap, turthKeys);
     if (row) rows.push(row);
   }
 
@@ -115,60 +122,28 @@ export function formatDynamicData(
 /**
  * Try to resolve a datacontent key into labeled row.
  * BPS key format is typically concatenated numeric IDs.
+ * IDs are matched longest-first to avoid partial matches of shorter IDs.
  */
 function resolveDatacontentKey(
   key: string,
   value: number | string,
   varMap: Map<string, BpsVariable>,
+  varKeys: string[],
   vervarMap: Map<string, BpsVerticalVariable>,
+  vervarKeys: string[],
   turvarMap: Map<string, BpsDerivedVariable>,
+  turvarKeys: string[],
   periodMap: Map<string, BpsPeriod>,
-  turthMap: Map<string, BpsDerivedPeriod>
+  periodKeys: string[],
+  turthMap: Map<string, BpsDerivedPeriod>,
+  turthKeys: string[]
 ): FormattedRow | null {
-  // Strategy: try to match known IDs from the metadata maps
-  // The key is a concatenation, so we iterate possible splits
-
-  let matchedVar: BpsVariable | undefined;
-  let matchedVervar: BpsVerticalVariable | undefined;
-  let matchedTurvar: BpsDerivedVariable | undefined;
-  let matchedPeriod: BpsPeriod | undefined;
-  let matchedTurth: BpsDerivedPeriod | undefined;
-
-  // Try matching against known IDs
-  for (const [id, v] of varMap) {
-    if (key.includes(id)) {
-      matchedVar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of vervarMap) {
-    if (key.includes(id)) {
-      matchedVervar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of turvarMap) {
-    if (key.includes(id)) {
-      matchedTurvar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of periodMap) {
-    if (key.includes(id)) {
-      matchedPeriod = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of turthMap) {
-    if (key.includes(id)) {
-      matchedTurth = v;
-      break;
-    }
-  }
+  // Match using pre-sorted (longest-first) keys for each map
+  const matchedVar = findLongestMatch(key, varMap, varKeys);
+  const matchedVervar = findLongestMatch(key, vervarMap, vervarKeys);
+  const matchedTurvar = findLongestMatch(key, turvarMap, turvarKeys);
+  const matchedPeriod = findLongestMatch(key, periodMap, periodKeys);
+  const matchedTurth = findLongestMatch(key, turthMap, turthKeys);
 
   return {
     variable: matchedVar?.title ?? "Data",
@@ -179,6 +154,27 @@ function resolveDatacontentKey(
     value,
     unit: matchedVar?.unit,
   };
+}
+
+/**
+ * Get map keys sorted by length (longest first).
+ * Longer IDs are checked first to avoid false matches with shorter IDs.
+ */
+function sortedKeys<T>(map: Map<string, T>): string[] {
+  return [...map.keys()].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Find the longest key in the map that is a substring of the target,
+ * using a pre-sorted key array for efficiency.
+ */
+function findLongestMatch<T>(target: string, map: Map<string, T>, keys: string[]): T | undefined {
+  for (const id of keys) {
+    if (target.includes(id)) {
+      return map.get(id);
+    }
+  }
+  return undefined;
 }
 
 function buildMap<T, K extends string>(
