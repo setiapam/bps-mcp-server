@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/setiapam/bps-mcp-server/compare/v0.2.0...v0.3.0) (2026-04-07)
+
+
+### Features
+
+* integrate AllStats Search and Deep Search with WebAPI ([25bf5d7](https://github.com/setiapam/bps-mcp-server/commit/25bf5d726b6b9eeb287ab5805a49bde90bfb5d3f))
+
 ## [0.2.0](https://github.com/setiapam/bps-mcp-server/compare/v0.1.0...v0.2.0) (2026-04-07)
 
 
