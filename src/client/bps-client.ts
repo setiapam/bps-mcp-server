@@ -41,10 +41,22 @@ import type {
 import { BpsApiError, BpsAuthError, BpsNotFoundError } from "../utils/error.js";
 import { logger } from "../utils/logger.js";
 
+/** Default fetch timeout in milliseconds */
+const FETCH_TIMEOUT_MS = 30_000;
+
+/** Maximum retry attempts for transient errors */
+const MAX_RETRIES = 3;
+
+/** Base delay for exponential backoff in milliseconds */
+const RETRY_BASE_DELAY_MS = 500;
+
 export class BpsClient {
   private readonly baseUrl: string;
   private readonly defaultLang: string;
   private readonly defaultDomain: string;
+
+  /** In-flight request deduplication map: cacheKey → pending Promise */
+  private readonly inflight = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly auth: IAuthProvider,
@@ -66,15 +78,76 @@ export class BpsClient {
       }
     }
 
+    // Deduplicate concurrent requests for the same cache key
+    const existing = this.inflight.get(cacheKey);
+    if (existing) {
+      logger.debug(`Dedup hit: ${cacheKey}`);
+      return existing as Promise<T>;
+    }
+
+    const promise = this.fetchWithRetry<T>(url, cacheKey, ttl);
+    this.inflight.set(cacheKey, promise);
+
+    try {
+      return await promise;
+    } finally {
+      this.inflight.delete(cacheKey);
+    }
+  }
+
+  private async fetchWithRetry<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        return await this.doFetch<T>(url, cacheKey, ttl);
+      } catch (error) {
+        lastError = error;
+
+        // Only retry on transient server errors (5xx)
+        const isRetryable =
+          error instanceof BpsApiError &&
+          error.statusCode !== undefined &&
+          error.statusCode >= 500;
+
+        if (!isRetryable || attempt === MAX_RETRIES - 1) {
+          throw error;
+        }
+
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        logger.warn(`Retrying (${attempt + 1}/${MAX_RETRIES}) after ${delay}ms: ${url}`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
+  }
+
+  private async doFetch<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
     logger.debug(`Fetching: ${url}`);
 
     const authHeaders = await this.auth.getHeaders();
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...authHeaders,
-      },
-    });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          ...authHeaders,
+        },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new BpsApiError(`Request timeout after ${FETCH_TIMEOUT_MS}ms`, 408, url);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (res.status === 401 || res.status === 403) {
       throw new BpsAuthError();

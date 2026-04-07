@@ -115,6 +115,7 @@ export function formatDynamicData(
 /**
  * Try to resolve a datacontent key into labeled row.
  * BPS key format is typically concatenated numeric IDs.
+ * IDs are matched longest-first to avoid partial matches of shorter IDs.
  */
 function resolveDatacontentKey(
   key: string,
@@ -125,50 +126,12 @@ function resolveDatacontentKey(
   periodMap: Map<string, BpsPeriod>,
   turthMap: Map<string, BpsDerivedPeriod>
 ): FormattedRow | null {
-  // Strategy: try to match known IDs from the metadata maps
-  // The key is a concatenation, so we iterate possible splits
-
-  let matchedVar: BpsVariable | undefined;
-  let matchedVervar: BpsVerticalVariable | undefined;
-  let matchedTurvar: BpsDerivedVariable | undefined;
-  let matchedPeriod: BpsPeriod | undefined;
-  let matchedTurth: BpsDerivedPeriod | undefined;
-
-  // Try matching against known IDs
-  for (const [id, v] of varMap) {
-    if (key.includes(id)) {
-      matchedVar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of vervarMap) {
-    if (key.includes(id)) {
-      matchedVervar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of turvarMap) {
-    if (key.includes(id)) {
-      matchedTurvar = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of periodMap) {
-    if (key.includes(id)) {
-      matchedPeriod = v;
-      break;
-    }
-  }
-
-  for (const [id, v] of turthMap) {
-    if (key.includes(id)) {
-      matchedTurth = v;
-      break;
-    }
-  }
+  // Match using pre-sorted (longest-first) keys for each map
+  const matchedVar = findLongestMatch(key, varMap);
+  const matchedVervar = findLongestMatch(key, vervarMap);
+  const matchedTurvar = findLongestMatch(key, turvarMap);
+  const matchedPeriod = findLongestMatch(key, periodMap);
+  const matchedTurth = findLongestMatch(key, turthMap);
 
   return {
     variable: matchedVar?.title ?? "Data",
@@ -179,6 +142,21 @@ function resolveDatacontentKey(
     value,
     unit: matchedVar?.unit,
   };
+}
+
+/**
+ * Find the longest key in the map that is a substring of the target.
+ * Longer IDs are checked first to avoid false matches with shorter IDs.
+ */
+function findLongestMatch<T>(target: string, map: Map<string, T>): T | undefined {
+  // Sort keys longest-first so we match the most specific ID
+  const sortedKeys = [...map.keys()].sort((a, b) => b.length - a.length);
+  for (const id of sortedKeys) {
+    if (target.includes(id)) {
+      return map.get(id);
+    }
+  }
+  return undefined;
 }
 
 function buildMap<T, K extends string>(
