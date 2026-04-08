@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/setiapam/bps-mcp-server/compare/v0.3.0...v0.3.1) (2026-04-08)
+
+
+### Bug Fixes
+
+* 403 allstats search ([311738d](https://github.com/setiapam/bps-mcp-server/commit/311738d06b97a2f4bee54eeb08b107ba7a492c0f))
+
 ## [0.3.0](https://github.com/setiapam/bps-mcp-server/compare/v0.2.0...v0.3.0) (2026-04-07)
 
 
