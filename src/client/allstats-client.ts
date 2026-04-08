@@ -6,6 +6,21 @@ import { logger } from "../utils/logger.js";
 
 const ALLSTATS_BASE = "https://searchengine.web.bps.go.id";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent": USER_AGENT,
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Accept-Encoding": "gzip, deflate, br",
+  "Referer": "https://www.bps.go.id/",
+  "DNT": "1",
+  "Connection": "keep-alive",
+  "Upgrade-Insecure-Requests": "1",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "same-site",
+  "Sec-Fetch-User": "?1",
+  "Cache-Control": "max-age=0",
+};
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1_000;
@@ -171,11 +186,9 @@ export class AllStatsClient {
     let res: Response;
     try {
       res = await fetch(url, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "text/html,application/xhtml+xml",
-        },
+        headers: BROWSER_HEADERS,
         signal: controller.signal,
+        redirect: "follow",
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -187,6 +200,15 @@ export class AllStatsClient {
     }
 
     if (!res.ok) {
+      if (res.status === 403) {
+        throw new AllStatsError(
+          "AllStats HTTP 403 Forbidden — situs BPS kemungkinan memblokir request dari IP server/cloud. " +
+          "Fitur AllStats Search & Deep Search hanya tersedia saat server dijalankan secara lokal (stdio). " +
+          "Gunakan tool 'search' (WebAPI) sebagai alternatif.",
+          403,
+          url,
+        );
+      }
       throw new AllStatsError(`AllStats HTTP ${res.status} ${res.statusText}`, res.status, url);
     }
 
