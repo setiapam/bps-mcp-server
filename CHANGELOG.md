@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/setiapam/bps-mcp-server/compare/v0.3.1...v0.3.2) (2026-04-11)
+
+
+### Bug Fixes
+
+* add User-Agent header to BPS API requests to avoid WAF blocks ([2969f81](https://github.com/setiapam/bps-mcp-server/commit/2969f81c398f834f4f50529d8938a6698415869a))
+* add User-Agent header to BPS API requests to avoid WAF blocks ([9a97201](https://github.com/setiapam/bps-mcp-server/commit/9a97201993266fa044a09e2cf27f298b40c6426b))
+
 ## [0.3.1](https://github.com/setiapam/bps-mcp-server/compare/v0.3.0...v0.3.1) (2026-04-08)
 
 
