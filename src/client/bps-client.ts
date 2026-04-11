@@ -41,6 +41,10 @@ import type {
 import { BpsApiError, BpsAuthError, BpsNotFoundError } from "../utils/error.js";
 import { logger } from "../utils/logger.js";
 
+/** Browser-like User-Agent to avoid BPS Perimeter WAF signature blocks */
+const USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+
 /** Default fetch timeout in milliseconds */
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -136,6 +140,7 @@ export class BpsClient {
       res = await fetch(url, {
         headers: {
           Accept: "application/json",
+          "User-Agent": USER_AGENT,
           ...authHeaders,
         },
         signal: controller.signal,
