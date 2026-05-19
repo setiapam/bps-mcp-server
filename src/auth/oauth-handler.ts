@@ -45,13 +45,13 @@ export async function handleAuthorize(
 
 async function validateBpsApiKey(apiKey: string): Promise<boolean> {
   try {
-    const url = `https://webapi.bps.go.id/v1/api/list/model/domain/type/all/key/${apiKey}/`;
+    const url = `https://webapi.bps.go.id/v1/api/domain/type/all/key/${apiKey}/`;
     const res = await fetch(url, {
       headers: { "User-Agent": "BPS-MCP-Server/OAuth", Accept: "application/json" },
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { status?: string };
-    return data.status !== "400";
+    return data.status === "OK";
   } catch {
     return true; // Allow through on network errors
   }
