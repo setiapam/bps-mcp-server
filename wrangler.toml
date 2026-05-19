@@ -17,4 +17,4 @@ id = "847d3de768034a58ba48bc6f637f70df"
 # Create with: wrangler kv namespace create OAUTH_KV
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID"
+id = "be20e5b126b44a35bb99c7f1c0961d14"
