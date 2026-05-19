@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/setiapam/bps-mcp-server/compare/v0.5.4...v0.6.0) (2026-05-19)
+
+
+### Features
+
+* route BPS API through homelab proxy to bypass CF bot detection ([1b79a1a](https://github.com/setiapam/bps-mcp-server/commit/1b79a1a22310e74a33288ef9ac1735fa2a531232))
+
 ## [0.5.4](https://github.com/setiapam/bps-mcp-server/compare/v0.5.3...v0.5.4) (2026-05-19)
 
 
