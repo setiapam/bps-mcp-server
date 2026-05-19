@@ -14,9 +14,19 @@ export async function handleAuthorize(
   }
 
   if (request.method === "POST") {
-    const authRequest = await oauthHelpers.parseAuthRequest(request);
     const formData = await request.formData();
     const apiKey = formData.get("api_key") as string;
+
+    // Reconstruct auth request from hidden form fields
+    const authRequest: AuthRequest = {
+      responseType: formData.get("response_type") as string || "code",
+      clientId: formData.get("client_id") as string || "",
+      redirectUri: formData.get("redirect_uri") as string || "",
+      scope: (formData.get("scope") as string || "").split(" ").filter(Boolean),
+      state: formData.get("state") as string || "",
+      codeChallenge: formData.get("code_challenge") as string || undefined,
+      codeChallengeMethod: formData.get("code_challenge_method") as string || undefined,
+    };
 
     if (!apiKey || apiKey.length < 20) {
       return renderLoginPage(authRequest, "API key tidak valid. Minimal 20 karakter.");
