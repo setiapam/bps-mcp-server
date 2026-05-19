@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/setiapam/bps-mcp-server/compare/v0.5.2...v0.5.3) (2026-05-19)
+
+
+### Bug Fixes
+
+* make API key validation resilient to BPS API failures from CF IPs ([1511d98](https://github.com/setiapam/bps-mcp-server/commit/1511d983dc0912ee4185444b29ca687f3fd99c81))
+
 ## [0.5.2](https://github.com/setiapam/bps-mcp-server/compare/v0.5.1...v0.5.2) (2026-05-19)
 
 
