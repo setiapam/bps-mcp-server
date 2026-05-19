@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/setiapam/bps-mcp-server/compare/v0.5.3...v0.5.4) (2026-05-19)
+
+
+### Bug Fixes
+
+* read OAuth props from ctx (not headers) as per workers-oauth-provider API ([d0aab14](https://github.com/setiapam/bps-mcp-server/commit/d0aab142125e4c2e1247b1dc13252bf0b88e92b8))
+
 ## [0.5.3](https://github.com/setiapam/bps-mcp-server/compare/v0.5.2...v0.5.3) (2026-05-19)
 
 
