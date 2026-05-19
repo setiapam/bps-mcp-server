@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/setiapam/bps-mcp-server/compare/v0.5.0...v0.5.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* correct BPS API key validation endpoint ([101a167](https://github.com/setiapam/bps-mcp-server/commit/101a1675466810a9802de7610b19e139b30db823))
+
 ## [0.5.0](https://github.com/setiapam/bps-mcp-server/compare/v0.4.0...v0.5.0) (2026-05-19)
 
 
