@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/setiapam/bps-mcp-server/compare/v0.3.2...v0.4.0) (2026-05-19)
+
+
+### Features
+
+* add AI-friendly tools (find_data, find_variable) and optimize cache ([7bc21d6](https://github.com/setiapam/bps-mcp-server/commit/7bc21d60cd2116ed3af700272d9d7defd1ab0b3f))
+* implement OAuth 2.1 for remote MCP clients (Claude.ai, ChatGPT, etc.) ([d69d1ff](https://github.com/setiapam/bps-mcp-server/commit/d69d1ffef31f50ed8e88df758fcafeceaf5db4d2))
+* rate limit ([96282e8](https://github.com/setiapam/bps-mcp-server/commit/96282e82e8468d510f6a975dd36fe9fe59c44e7a))
+
+
+### Bug Fixes
+
+* BYOK ([4e142c4](https://github.com/setiapam/bps-mcp-server/commit/4e142c4a4fd1bd80c0fae4feb5c1e7aafd0ce4b8))
+* require Node.js &gt;= 22 (wrangler 4.x and vitest 4.x requirement) ([6968836](https://github.com/setiapam/bps-mcp-server/commit/6968836aa17d6e7cff3fcb2f89d71451ec6eca73))
+* update dependencies ([7793d91](https://github.com/setiapam/bps-mcp-server/commit/7793d91735010ddf89cb8b12a26a63924d476160))
+* update wrangler ([891c6b3](https://github.com/setiapam/bps-mcp-server/commit/891c6b3edc23ccd22f665f37ebb5ab1bd817f4fa))
+
 ## [0.3.2](https://github.com/setiapam/bps-mcp-server/compare/v0.3.1...v0.3.2) (2026-04-11)
 
 
