@@ -25,6 +25,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node --env-file=.env dist/index.js",
+    "prepublishOnly": "npm run build",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "typecheck:worker": "tsc --noEmit --project tsconfig.worker.json",
