@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/setiapam/bps-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/setiapam/bps-mcp-server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 
 MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statistik) Indonesia. Memungkinkan AI clients seperti Claude Desktop, Claude Code, Cursor, dan lainnya untuk mengakses data statistik resmi Indonesia melalui natural language.
 
@@ -24,7 +24,7 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 
 ## Prasyarat
 
-- Node.js ≥ 18
+- Node.js ≥ 22
 - API key BPS (gratis, daftar di [webapi.bps.go.id](https://webapi.bps.go.id))
 
 ## Quick Start
