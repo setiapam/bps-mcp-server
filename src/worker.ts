@@ -38,6 +38,24 @@ const oauthOptions = {
         );
       }
 
+      // Debug: test BPS API reachability from this worker
+      if (url.pathname === "/debug-bps") {
+        const testKey = url.searchParams.get("key") || "";
+        const testUrl = `https://webapi.bps.go.id/v1/api/domain/type/all/lang/ind/key/${testKey}/`;
+        try {
+          const r = await fetch(testUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+              Accept: "application/json",
+            },
+          });
+          const body = await r.text();
+          return new Response(JSON.stringify({ status: r.status, headers: Object.fromEntries(r.headers), body: body.substring(0, 500) }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { headers: { "Content-Type": "application/json" } });
+        }
+      }
+
       // OAuth authorize endpoint
       if (url.pathname === "/authorize") {
         const oauthHelpers: OAuthHelpers = getOAuthApi(oauthOptions, env);
