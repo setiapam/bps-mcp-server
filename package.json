@@ -37,19 +37,19 @@
     "deploy:dry": "wrangler deploy --dry-run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.2.0",
-    "zod": "^3.24.4"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250414.0",
+    "@cloudflare/workers-types": "^4.20260519.0",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.15.3",
-    "eslint": "^10.1.0",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.58.0",
-    "vitest": "^3.1.2",
-    "wrangler": "^4.0.0"
+    "@types/node": "^22.19.19",
+    "eslint": "^10.4.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4",
+    "vitest": "^4.1.6",
+    "wrangler": "^4.93.0"
   },
   "engines": {
     "node": ">=18.0.0"

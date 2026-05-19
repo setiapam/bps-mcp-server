@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v4";
 import { DEFAULTS } from "./defaults.js";
 
 const ConfigSchema = z
@@ -7,15 +7,15 @@ const ConfigSchema = z
     apiKey: z.string().optional(),
     oauthClientId: z.string().optional(),
     oauthClientSecret: z.string().optional(),
-    oauthTokenEndpoint: z.string().url().optional(),
+    oauthTokenEndpoint: z.url().optional(),
     oauthScopes: z.string().optional(),
 
-    apiBaseUrl: z.string().url().default(DEFAULTS.API_BASE_URL),
+    apiBaseUrl: z.url().default(DEFAULTS.API_BASE_URL),
     defaultLang: z.enum(["ind", "eng"]).default(DEFAULTS.DEFAULT_LANG),
     defaultDomain: z.string().default(DEFAULTS.DEFAULT_DOMAIN),
 
     cacheEnabled: z.boolean().default(DEFAULTS.CACHE_ENABLED),
-    cacheMaxEntries: z.number().int().positive().default(DEFAULTS.CACHE_MAX_ENTRIES),
+    cacheMaxEntries: z.int().positive().default(DEFAULTS.CACHE_MAX_ENTRIES),
 
     logLevel: z.enum(["debug", "info", "warn", "error"]).default(DEFAULTS.LOG_LEVEL),
   })
@@ -27,7 +27,7 @@ const ConfigSchema = z
       }
       return false;
     },
-    { message: "Invalid auth configuration. Provide BPS_API_KEY or OAuth2 credentials." }
+    { error: "Invalid auth configuration. Provide BPS_API_KEY or OAuth2 credentials." }
   );
 
 export type Config = z.infer<typeof ConfigSchema>;

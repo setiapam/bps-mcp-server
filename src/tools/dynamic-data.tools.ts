@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
