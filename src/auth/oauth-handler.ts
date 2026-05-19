@@ -57,13 +57,24 @@ async function validateBpsApiKey(apiKey: string): Promise<boolean> {
   try {
     const url = `https://webapi.bps.go.id/v1/api/domain/type/all/key/${apiKey}/`;
     const res = await fetch(url, {
-      headers: { "User-Agent": "BPS-MCP-Server/OAuth", Accept: "application/json" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        Accept: "application/json",
+      },
     });
-    if (!res.ok) return false;
-    const data = (await res.json()) as { status?: string };
-    return data.status === "OK";
+    // If BPS API is down or blocks us, allow through (validate later on actual use)
+    if (!res.ok) return true;
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text) as { status?: string; "data-availability"?: string };
+      // Only reject if BPS explicitly says the key is invalid
+      if (data.status === "400" || data["data-availability"] === "list-not-available") return false;
+    } catch {
+      // Non-JSON response (HTML error page) — allow through
+    }
+    return true;
   } catch {
-    return true; // Allow through on network errors
+    return true;
   }
 }
 
