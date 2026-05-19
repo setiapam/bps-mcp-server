@@ -4,7 +4,7 @@ compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-BPS_API_BASE_URL = "https://webapi.bps.go.id/v1"
+BPS_API_BASE_URL = "https://bps-api.murphi.my.id/v1"
 BPS_DEFAULT_LANG = "ind"
 BPS_DEFAULT_DOMAIN = "0000"
 
