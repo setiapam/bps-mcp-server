@@ -7,7 +7,10 @@ import { formatErrorForUser } from "../utils/error.js";
 export function registerReferenceTools(server: McpServer, client: BpsClient): void {
   server.tool(
     "list_strategic_indicators",
-    "Daftar indikator strategis BPS. Indikator ini mencakup data-data utama seperti pertumbuhan ekonomi, inflasi, pengangguran, dan kemiskinan.",
+    `Daftar indikator strategis BPS — data headline terbaru (inflasi, pertumbuhan ekonomi, kemiskinan, pengangguran, IPM, ekspor/impor, dll).
+
+Gunakan tool ini untuk mendapatkan ringkasan cepat indikator utama suatu wilayah. Data sudah termasuk nilai terbaru.
+Untuk data historis multi-tahun, gunakan find_data atau get_dynamic_data.`,
     {
       domain: z.string().default("0000").describe("Kode domain BPS"),
       var: z.number().optional().describe("Filter berdasarkan ID variabel"),

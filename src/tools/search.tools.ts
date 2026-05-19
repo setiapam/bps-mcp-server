@@ -47,7 +47,18 @@ export function registerSearchTools(
 ): void {
   server.tool(
     "search",
-    "Pencarian data lintas tipe di BPS. Mencari via WebAPI (tabel statis, publikasi, BRS, indikator). Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine untuk hasil yang lebih luas.",
+    `Pencarian data lintas tipe di BPS (tabel statis, publikasi, BRS, indikator).
+
+Kapan menggunakan tool ini:
+- Mencari tabel statis atau publikasi berdasarkan topik
+- Mencari BRS (Berita Resmi Statistik) terbaru
+- Pencarian umum ketika find_data tidak menemukan hasil
+
+Kapan TIDAK menggunakan tool ini:
+- Jika user minta data angka spesifik → gunakan find_data
+- Jika sudah tahu variabel ID → gunakan get_dynamic_data
+
+Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`,
     {
       domain: z.string().default("0000").describe("Kode domain BPS"),
       keyword: z.string().describe("Kata kunci pencarian"),

@@ -190,7 +190,19 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
 
   server.tool(
     "get_dynamic_data",
-    "Ambil data dari tabel dinamis BPS. Ini adalah tool utama untuk mendapatkan data statistik. Gunakan list_variables untuk menemukan ID variabel, dan list_periods untuk menemukan kode periode.",
+    `Ambil data dari tabel dinamis BPS. Tool ini membutuhkan ID variabel yang spesifik.
+
+PENTING: Gunakan find_data terlebih dahulu untuk pencarian otomatis. Gunakan tool ini hanya jika sudah tahu var_id.
+
+Variabel umum (nasional, domain=0000):
+- 1452: Jumlah Penduduk (ribu jiwa)
+- 185: Persentase Penduduk Miskin
+- 523: Tingkat Pengangguran Terbuka (%)
+- 108: Laju Pertumbuhan PDB (%)
+- 1706: Indeks Pembangunan Manusia (IPM)
+- 2103: Gini Rasio
+
+Gunakan find_variable untuk mencari ID variabel lainnya.`,
     {
       domain: z.string().describe("Kode domain BPS. '0000' untuk nasional."),
       var: z.string().describe("ID variabel (bisa beberapa, pisahkan dengan koma). Contoh: '1452' atau '1452,1453'"),

@@ -195,15 +195,15 @@ export class BpsClient {
     ttl?: number
   ): Promise<T> {
     const auth = await this.authParams();
-    const allParams: Record<string, string | number | undefined> = {
+    const baseParams: Record<string, string | number | undefined> = {
       domain: params.domain ?? this.defaultDomain,
       ...params,
       lang: params.lang ?? this.defaultLang,
-      ...auth,
     };
+    const allParams = { ...baseParams, ...auth };
 
     const url = buildListUrl(this.baseUrl, model, allParams);
-    const cacheKey = `list:${model}:${JSON.stringify(allParams)}`;
+    const cacheKey = `list:${model}:${JSON.stringify(baseParams)}`;
     return this.fetchJson<T>(url, cacheKey, ttl);
   }
 
@@ -216,15 +216,15 @@ export class BpsClient {
     ttl?: number
   ): Promise<T> {
     const auth = await this.authParams();
-    const allParams: Record<string, string | number | undefined> = {
+    const baseParams: Record<string, string | number | undefined> = {
       domain: params.domain ?? this.defaultDomain,
       ...params,
       lang: params.lang ?? this.defaultLang,
-      ...auth,
     };
+    const allParams = { ...baseParams, ...auth };
 
     const url = buildViewUrl(this.baseUrl, model, allParams);
-    const cacheKey = `view:${model}:${JSON.stringify(allParams)}`;
+    const cacheKey = `view:${model}:${JSON.stringify(baseParams)}`;
     return this.fetchJson<T>(url, cacheKey, ttl);
   }
 
@@ -243,15 +243,14 @@ export class BpsClient {
     provId?: string
   ): Promise<{ data: BpsDomain[]; page?: PageInfo }> {
     const auth = await this.authParams();
+    const baseParams = { type, prov: provId, lang: this.defaultLang };
     const params: Record<string, string | number | undefined> = {
-      type,
-      prov: provId,
-      lang: this.defaultLang,
+      ...baseParams,
       ...auth,
     };
 
     const url = buildDomainUrl(this.baseUrl, params);
-    const cacheKey = `domain:${JSON.stringify(params)}`;
+    const cacheKey = `domain:${type}:${provId || "all"}`;
     const res = await this.fetchJson<{ data: [PageInfo, BpsDomain[]] }>(url, cacheKey, 24 * 60 * 60);
     return this.extractPaginated(res);
   }
@@ -470,7 +469,7 @@ export class BpsClient {
     };
 
     const url = buildTradeUrl(this.baseUrl, params);
-    const cacheKey = `trade:${JSON.stringify(params)}`;
+    const cacheKey = `trade:${source}:${hsCode}:${hsType}:${year}:${period}`;
     return this.fetchJson(url, cacheKey, 60 * 60);
   }
 

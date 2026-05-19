@@ -8,7 +8,8 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 
 ## Fitur
 
-- **34 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search
+- **36 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search + AI-friendly shortcuts
+- **AI-friendly** — tool `find_data` memungkinkan AI mendapat data dalam 1 langkah (tanpa perlu navigasi hierarki BPS)
 - **Integrasi AllStats Search** — pencarian unified + full-text PDF search (tanpa API key)
 - **Smart fallback** — WebAPI search otomatis fallback ke AllStats jika tidak ada hasil
 - **3 MCP Resources** — domain list, kabupaten per provinsi, subjek per domain
@@ -16,16 +17,17 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 - **Domain resolver** dengan fuzzy matching (ketik "Jatim" → Jawa Timur)
 - **Data formatter** yang mengubah raw BPS data menjadi format mudah dibaca
 - **In-memory cache** dengan TTL per tipe data
-- **Bilingual** — mendukung bahasa Indonesia dan Inggris
+- **Rate limiting** — 60 req/menit per API key (remote worker)
+- **Bilingual** — error messages dan response mendukung bahasa Indonesia dan Inggris
 - **Atribusi BPS** otomatis di setiap response (sesuai ToU)
-- **BYOK** (Bring Your Own Key) — setiap user wajib menggunakan API key BPS sendiri (mandatory untuk remote/worker)
+- **BYOK** (Bring Your Own Key) — setiap user wajib menggunakan API key BPS sendiri
 
 ## Prasyarat
 
 - Node.js ≥ 18
 - API key BPS (gratis, daftar di [webapi.bps.go.id](https://webapi.bps.go.id))
 
-## Instalasi & Penggunaan
+## Quick Start
 
 ### Via npx (recommended)
 
@@ -51,7 +53,7 @@ Server ini tersedia secara publik di:
 https://bps-mcp-server.murphi.my.id/mcp
 ```
 
-Tambahkan ke MCP client manapun (Claude Desktop, Cursor, dll.) via remote transport:
+Setiap request **wajib** menyertakan header `X-BPS-API-Key`. Tidak ada fallback — tanpa key akan mendapat 401.
 
 ```json
 {
@@ -69,7 +71,7 @@ Tambahkan ke MCP client manapun (Claude Desktop, Cursor, dll.) via remote transp
 
 ### Self-hosted
 
-Ingin deploy sendiri? Deploy sebagai serverless worker di akun Cloudflare kamu:
+Deploy sebagai serverless worker di akun Cloudflare kamu:
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/setiapam/bps-mcp-server)
 
@@ -135,7 +137,16 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 }
 ```
 
-## Tools (34)
+## Tools (36)
+
+### AI-Friendly Smart Tools (2)
+
+| Tool | Deskripsi |
+|------|-----------|
+| `find_data` | **Recommended** — Cari & ambil data dalam satu langkah (resolve wilayah + cari variabel + ambil data) |
+| `find_variable` | Cari variabel data berdasarkan kata kunci |
+
+> **Untuk AI:** Gunakan `find_data` sebagai langkah pertama. Jika hasilnya kurang spesifik, gunakan `find_variable` lalu `get_dynamic_data`.
 
 ### WebAPI Tools (32)
 
@@ -151,14 +162,14 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `list_periods` | Periode data tersedia |
 | `list_derived_periods` | Turunan periode |
 | `list_units` | Satuan data |
-| `get_dynamic_data` | **Core** — Ambil data tabel dinamis |
+| `get_dynamic_data` | **Core** — Ambil data tabel dinamis (butuh var_id) |
 | `list_static_tables` | Daftar tabel statis |
 | `get_static_table` | Detail tabel statis (HTML) |
 | `list_press_releases` | Daftar Berita Resmi Statistik (BRS) |
 | `get_press_release` | Detail BRS |
 | `list_publications` | Daftar publikasi |
 | `get_publication` | Detail publikasi |
-| `list_strategic_indicators` | Indikator strategis |
+| `list_strategic_indicators` | Indikator strategis (headline data terbaru) |
 | `get_trade_data` | Data ekspor/impor berdasarkan kode HS |
 | `list_infographics` | Daftar infografis BPS |
 | `get_infographic` | Detail infografis |
@@ -181,70 +192,37 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `allstats_search` | Pencarian unified semua konten BPS (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi) |
 | `allstats_deep_search` | Full-text search di dalam isi PDF publikasi BPS — **fitur unik, tidak tersedia di WebAPI** |
 
-## Integrasi AllStats Search
-
-Server ini mengintegrasikan dua sumber data yang saling melengkapi:
+## Bagaimana AI Menggunakan Server Ini
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    BPS MCP Server                        │
-│                                                         │
-│  ┌──────────────────┐    ┌────────────────────────┐     │
-│  │   WebAPI BPS      │    │  AllStats Search        │     │
-│  │   (Primary)       │    │  (Supplementary)        │     │
-│  │                   │    │                          │     │
-│  │  + Structured     │    │  + Full-text PDF search  │     │
-│  │    data (JSON)    │    │  + Unified search        │     │
-│  │  + Dynamic tables │    │    semua tipe konten     │     │
-│  │  + Ekspor/Impor   │    │  + Tanpa API key         │     │
-│  │  + Sensus data    │    │  + Filter wilayah 550+   │     │
-│  │  - No PDF search  │    │  - HTML scraping         │     │
-│  └──────────────────┘    └────────────────────────┘     │
-│                                                         │
-│  Strategi interaksi:                                    │
-│  1. search → WebAPI dulu, fallback AllStats jika kosong │
-│  2. allstats_search → langsung ke AllStats Search       │
-│  3. allstats_deep_search → cari teks di dalam PDF       │
-└─────────────────────────────────────────────────────────┘
+User: "Berapa angka kemiskinan Indonesia 2023?"
+
+AI menggunakan: find_data(query="penduduk miskin", region="Indonesia", year="2023")
+
+Proses internal (otomatis):
+1. Resolve "Indonesia" → domain 0000
+2. Cari subjek relevan → "Kemiskinan dan Ketimpangan"
+3. Cari variabel → "Jumlah Penduduk Miskin" (var_id: 183)
+4. Resolve "2023" → period ID 123
+5. Ambil data → 25,9 juta jiwa
+
+Jika find_data gagal, AI bisa:
+- find_variable(keyword="miskin") → lihat variabel yang tersedia
+- list_strategic_indicators() → data headline terbaru
+- search(keyword="kemiskinan") → cari tabel/publikasi terkait
 ```
 
-### Cara Kerja
-
-**`search` (smart fallback)**
-- Prioritas: WebAPI BPS (structured JSON)
-- Jika WebAPI mengembalikan hasil kosong atau error, otomatis fallback ke AllStats Search
-- User mendapat notifikasi sumber data yang digunakan
-
-**`allstats_search` (unified discovery)**
-- Langsung query ke `searchengine.web.bps.go.id`
-- Mendukung filter: tipe konten, wilayah, rentang tahun, urutan
-- Tidak memerlukan API key BPS
-- Cocok untuk discovery atau pencarian broad
-
-**`allstats_deep_search` (PDF full-text)**
-- Cari teks di dalam isi PDF publikasi BPS
-- Memerlukan `publication_id` (24 karakter hex) dari hasil `allstats_search`
-- Mengembalikan halaman PDF yang cocok beserta cuplikan teks
-- Fitur unik yang tidak tersedia di WebAPI
-
-### Workflow Contoh
+## Contoh Query
 
 ```
-1. Discovery → Deep Search:
-   allstats_search("akses internet", content="publication")
-   → dapat publication_id
-   → allstats_deep_search("akses internet", publication_id="131385d0253c6aae7c7a59fa")
-   → halaman PDF yang membahas "akses internet"
-
-2. Smart fallback:
-   search(keyword="kemiskinan Papua")
-   → WebAPI kosong → otomatis cari via AllStats
-   → hasil dari AllStats ditampilkan dengan catatan fallback
-
-3. Parallel enrichment (oleh AI):
-   - get_dynamic_data → data angka terstruktur
-   - allstats_search("inflasi", content="pressrelease") → BRS terbaru
-   → AI menggabungkan data angka + konteks dari BRS
+"Berapa jumlah penduduk miskin Indonesia tahun 2023?"
+"Bandingkan angka kemiskinan Jawa Timur vs Jawa Barat 2020-2023"
+"Cari BRS terbaru tentang inflasi"
+"Data ekspor kopi Indonesia tahun 2024"
+"Cari publikasi tentang statistik telekomunikasi"
+"Cari teks tentang akses internet di dalam publikasi BPS"
+"Berapa IPM Jawa Timur?"
+"Pertumbuhan ekonomi Indonesia triwulan terakhir"
 ```
 
 ## Resources (3)
@@ -265,17 +243,6 @@ Server ini mengintegrasikan dua sumber data yang saling melengkapi:
 | `economic_overview` | Ringkasan ekonomi wilayah |
 | `population_stats` | Statistik kependudukan |
 
-## Contoh Query
-
-```
-"Berapa jumlah penduduk Indonesia tahun 2023?"
-"Bandingkan angka kemiskinan Jawa Timur vs Jawa Barat 2020-2023"
-"Cari BRS terbaru tentang inflasi"
-"Data ekspor kopi Indonesia tahun 2024"
-"Cari publikasi tentang statistik telekomunikasi"
-"Cari teks tentang akses internet di dalam publikasi BPS"
-```
-
 ## Environment Variables
 
 | Variable | Default | Deskripsi |
@@ -290,12 +257,95 @@ Server ini mengintegrasikan dua sumber data yang saling melengkapi:
 
 ## Development
 
+### Setup
+
 ```bash
 git clone https://github.com/setiapam/bps-mcp-server
 cd bps-mcp-server
 npm install
-npm run build
-npm run test:unit
+```
+
+### Build & Test
+
+```bash
+npm run build          # Compile TypeScript
+npm run test:unit      # Run unit tests (76 tests)
+npm run lint           # ESLint check
+npm run typecheck      # TypeScript type check
+```
+
+### Menjalankan Lokal
+
+```bash
+# Dengan environment variable
+BPS_API_KEY=your_key npm start
+
+# Atau buat file .env (lihat .env.example)
+cp .env.example .env
+# Edit .env, isi BPS_API_KEY
+npm start
+```
+
+### Testing dengan MCP Inspector
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) memungkinkan kamu menguji tools secara interaktif:
+
+```bash
+# Install dan jalankan inspector
+npx @modelcontextprotocol/inspector
+
+# Di inspector UI:
+# 1. Transport: stdio
+# 2. Command: node
+# 3. Args: dist/index.js
+# 4. Env: BPS_API_KEY=your_key
+```
+
+Atau test langsung via stdin (tanpa inspector):
+
+```bash
+# Test initialize
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | BPS_API_KEY=your_key node dist/index.js
+
+# Test find_data
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_data","arguments":{"query":"inflasi","region":"Indonesia"}}}\n' | BPS_API_KEY=your_key node dist/index.js
+```
+
+### Testing Remote Worker (Lokal)
+
+```bash
+# Jalankan worker secara lokal
+npm run dev:worker
+
+# Test di terminal lain
+curl -X POST http://localhost:8787/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-BPS-API-Key: your_key" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+### Struktur Project
+
+```
+src/
+├── auth/           # API key & OAuth2 providers
+├── client/         # BPS WebAPI & AllStats HTTP clients
+├── config/         # Configuration & defaults
+├── prompts/        # MCP prompt templates
+├── resources/      # MCP resources (domain lists)
+├── services/       # Cache, domain resolver, data formatter
+├── tools/          # MCP tool definitions (36 tools)
+│   ├── smart.tools.ts      # find_data, find_variable (AI shortcuts)
+│   ├── dynamic-data.tools.ts  # Core data tools
+│   ├── search.tools.ts     # Search with AllStats fallback
+│   ├── allstats.tools.ts   # AllStats search & deep search
+│   └── ...                  # Domain, publication, trade, etc.
+├── transport/      # stdio transport
+├── utils/          # Logger, error handling, pagination
+├── index.ts        # CLI entry point (stdio)
+├── worker.ts       # Cloudflare Worker entry point (HTTP)
+└── server.ts       # MCP server factory
 ```
 
 ## Atribusi

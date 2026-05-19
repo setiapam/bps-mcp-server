@@ -16,7 +16,7 @@ export interface Env {
 // --- Constants ---
 
 const VERSION = "0.3.2";
-const TOOLS_COUNT = 34;
+const TOOLS_COUNT = 36;
 const RATE_LIMIT_DEFAULT_RPM = 60;
 
 const CORS_HEADERS: Record<string, string> = {
@@ -60,31 +60,28 @@ function detectLang(request: Request): "id" | "en" {
   return "id";
 }
 
-// --- Rate Limiting (per API key, sliding window via KV) ---
+// --- Rate Limiting (per API key, fixed window with single counter) ---
 
 async function checkRateLimit(
   kv: KVNamespace,
   apiKey: string,
   maxRpm: number
 ): Promise<{ allowed: boolean; remaining: number }> {
-  const key = `rl:${apiKey}`;
-  const now = Math.floor(Date.now() / 1000);
-  const windowStart = now - 60;
+  // Use fixed 60-second windows to minimize KV operations
+  const window = Math.floor(Date.now() / 60_000);
+  const key = `rl:${apiKey}:${window}`;
 
   const raw = await kv.get(key);
-  let timestamps: number[] = raw ? JSON.parse(raw) : [];
+  const count = raw ? parseInt(raw, 10) : 0;
 
-  // Remove expired entries
-  timestamps = timestamps.filter((t) => t > windowStart);
-
-  if (timestamps.length >= maxRpm) {
+  if (count >= maxRpm) {
     return { allowed: false, remaining: 0 };
   }
 
-  timestamps.push(now);
-  await kv.put(key, JSON.stringify(timestamps), { expirationTtl: 120 });
+  // Only write if allowed — saves 1 write on rejected requests
+  await kv.put(key, String(count + 1), { expirationTtl: 120 });
 
-  return { allowed: true, remaining: maxRpm - timestamps.length };
+  return { allowed: true, remaining: maxRpm - count - 1 };
 }
 
 // --- API Key Validation (fail fast) ---

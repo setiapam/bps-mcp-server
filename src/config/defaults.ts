@@ -10,17 +10,17 @@ export const DEFAULTS = {
 } as const;
 
 export const CACHE_TTL = {
-  DOMAIN_LIST: 24 * 60 * 60,
-  SUBJECT_LIST: 24 * 60 * 60,
-  VARIABLE_LIST: 12 * 60 * 60,
-  STATIC_TABLE: 6 * 60 * 60,
-  DYNAMIC_DATA: 1 * 60 * 60,
-  TRADE_DATA: 1 * 60 * 60,
-  PRESS_RELEASE: 30 * 60,
-  PUBLICATION: 6 * 60 * 60,
-  STRATEGIC_INDICATOR: 1 * 60 * 60,
-  ALLSTATS_SEARCH: 30 * 60,
-  ALLSTATS_DEEP_SEARCH: 60 * 60,
+  DOMAIN_LIST: 7 * 24 * 60 * 60,       // 7 days — domains rarely change
+  SUBJECT_LIST: 7 * 24 * 60 * 60,      // 7 days — subjects rarely change
+  VARIABLE_LIST: 24 * 60 * 60,         // 24 hours
+  STATIC_TABLE: 24 * 60 * 60,          // 24 hours
+  DYNAMIC_DATA: 6 * 60 * 60,           // 6 hours — data updates infrequently
+  TRADE_DATA: 6 * 60 * 60,             // 6 hours
+  PRESS_RELEASE: 2 * 60 * 60,          // 2 hours
+  PUBLICATION: 24 * 60 * 60,           // 24 hours
+  STRATEGIC_INDICATOR: 6 * 60 * 60,    // 6 hours
+  ALLSTATS_SEARCH: 2 * 60 * 60,        // 2 hours
+  ALLSTATS_DEEP_SEARCH: 24 * 60 * 60,  // 24 hours — PDF content doesn't change
 } as const;
 
 export const ATTRIBUTION =

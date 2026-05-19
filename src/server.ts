@@ -14,6 +14,7 @@ import { registerTradeTools } from "./tools/trade.tools.js";
 import { registerSearchTools } from "./tools/search.tools.js";
 import { registerAllStatsTools } from "./tools/allstats.tools.js";
 import { registerUtilityTools } from "./tools/utility.tools.js";
+import { registerSmartTools } from "./tools/smart.tools.js";
 import { registerInfographicTools } from "./tools/infographic.tools.js";
 import { registerCensusTools } from "./tools/census.tools.js";
 import { registerCsaTools } from "./tools/csa.tools.js";
@@ -54,6 +55,9 @@ export function createServer(
 
   // AllStats-only tools (search engine + deep search)
   registerAllStatsTools(server, allStatsClient);
+
+  // Smart AI-friendly tools (one-shot data retrieval)
+  registerSmartTools(server, client, resolver, config);
 
   // Utility
   registerUtilityTools(server, cache);
