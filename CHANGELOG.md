@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/setiapam/bps-mcp-server/compare/v0.5.1...v0.5.2) (2026-05-19)
+
+
+### Bug Fixes
+
+* prevent double body consumption in OAuth authorize POST ([887ef5d](https://github.com/setiapam/bps-mcp-server/commit/887ef5d8d9bea94818e5216399a20ca7e936fb8c))
+
 ## [0.5.1](https://github.com/setiapam/bps-mcp-server/compare/v0.5.0...v0.5.1) (2026-05-19)
 
 
