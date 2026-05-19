@@ -53,7 +53,31 @@ Server ini tersedia secara publik di:
 https://bps-mcp-server.murphi.my.id/mcp
 ```
 
-Setiap request **wajib** menyertakan header `X-BPS-API-Key`. Tidak ada fallback — tanpa key akan mendapat 401.
+### Menggunakan di Claude.ai
+
+1. Buka [claude.ai](https://claude.ai) → Settings → Integrations → Add custom connector
+2. Masukkan:
+   - **Name:** BPS Statistics
+   - **URL:** `https://bps-mcp-server.murphi.my.id/mcp`
+3. Claude akan membuka halaman otorisasi
+4. Masukkan **BPS API key** Anda (gratis dari [webapi.bps.go.id](https://webapi.bps.go.id))
+5. Klik "Otorisasi" — selesai!
+
+Server menggunakan OAuth 2.1 sesuai MCP spec. API key Anda tersimpan aman di server dan tidak pernah terekspos ke client.
+
+### Menggunakan di AI Client Lain (Remote MCP)
+
+Untuk AI client yang mendukung remote MCP dengan OAuth (ChatGPT, Cursor remote, dll):
+
+```
+MCP Server URL: https://bps-mcp-server.murphi.my.id/mcp
+```
+
+Client akan otomatis melakukan OAuth flow — user hanya perlu memasukkan BPS API key saat halaman otorisasi muncul.
+
+### Menggunakan dengan Custom Headers (tanpa OAuth)
+
+Untuk client yang mendukung custom headers (Claude Desktop, Cursor lokal):
 
 ```json
 {

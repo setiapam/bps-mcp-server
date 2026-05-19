@@ -38,6 +38,7 @@
     "deploy:dry": "wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.6.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.2.0",
     "zod": "^4.4.3"

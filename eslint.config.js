@@ -9,7 +9,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["src/worker.ts", "src/services/kv-cache.ts", "src/config/worker-config.ts"],
+          allowDefaultProject: ["src/worker.ts", "src/worker-mcp.ts", "src/auth/oauth-handler.ts", "src/services/kv-cache.ts", "src/config/worker-config.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

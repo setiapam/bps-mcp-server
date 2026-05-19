@@ -8,8 +8,13 @@ BPS_API_BASE_URL = "https://webapi.bps.go.id/v1"
 BPS_DEFAULT_LANG = "ind"
 BPS_DEFAULT_DOMAIN = "0000"
 
-# KV namespace for caching — create with: wrangler kv namespace create BPS_CACHE
-# Then replace the id below with the actual ID from the output
+# KV namespace for BPS data caching
 [[kv_namespaces]]
 binding = "BPS_CACHE"
 id = "847d3de768034a58ba48bc6f637f70df"
+
+# KV namespace for OAuth tokens (required by workers-oauth-provider)
+# Create with: wrangler kv namespace create OAUTH_KV
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_OAUTH_KV_NAMESPACE_ID"

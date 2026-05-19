@@ -41,16 +41,21 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
           // Search within specific subject
           await searchVariablesInSubject(client, domain, subject, kw, allVars);
         } else {
-          // Find relevant subjects first, then search within them
+          // Use keyword → subject mapping + subject title matching
+          const mappedIds = getSubjectIdsForKeyword(kw);
           const subjects = await client.listSubjects(domain);
-          const relevantSubjects = subjects.data.filter(s => {
-            const titleLower = s.title.toLowerCase();
-            return kw.split(/\s+/).some(w => w.length > 2 && titleLower.includes(w)) || titleLower.includes(kw);
-          });
+          const matchedIds = subjects.data
+            .filter(s => {
+              const t = s.title.toLowerCase();
+              return kw.split(/\s+/).some(w => w.length > 2 && t.includes(w)) || t.includes(kw);
+            })
+            .map(s => s.sub_id);
+
+          const subjectIds = [...new Set([...mappedIds, ...matchedIds])];
 
           // Search in relevant subjects first
-          for (const sub of relevantSubjects.slice(0, 5)) {
-            await searchVariablesInSubject(client, domain, sub.sub_id, kw, allVars);
+          for (const subId of subjectIds.slice(0, 5)) {
+            await searchVariablesInSubject(client, domain, subId, kw, allVars);
             if (allVars.length >= 15) break;
           }
 
@@ -144,16 +149,21 @@ Jika hasilnya tidak sesuai, gunakan find_variable untuk mencari variabel yang le
         let bestVar: { var_id: number; title: string; sub_name: string; unit?: string } | null = null;
         const candidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
 
-        // Find relevant subjects
+        // Find subject IDs from keyword mapping + subject title matching
+        const mappedSubjectIds = getSubjectIdsForKeyword(kw);
         const subjects = await client.listSubjects(domain);
         const relevantSubjects = subjects.data.filter(s => {
           const titleLower = s.title.toLowerCase();
           return kw.split(/\s+/).some(w => w.length > 2 && titleLower.includes(w)) || titleLower.includes(kw);
         });
 
+        const subjectIdsToSearch = [
+          ...new Set([...mappedSubjectIds, ...relevantSubjects.map(s => s.sub_id)])
+        ];
+
         // Search in relevant subjects
-        for (const sub of relevantSubjects.slice(0, 5)) {
-          const result = await client.listVariables(domain, sub.sub_id, undefined, 1, 100);
+        for (const subId of subjectIdsToSearch.slice(0, 5)) {
+          const result = await client.listVariables(domain, subId, undefined, 1, 100);
           if (!result.data || result.data.length === 0) continue;
 
           for (const v of result.data) {
@@ -294,6 +304,30 @@ Jika hasilnya tidak sesuai, gunakan find_variable untuk mencari variabel yang le
   );
 }
 
+// Common keyword → subject ID mapping (BPS subject IDs are stable across domains)
+const KEYWORD_SUBJECTS: Record<string, number[]> = {
+  pengangguran: [6], tenaga: [6], kerja: [6], tpak: [6], angkatan: [6],
+  miskin: [23], kemiskinan: [23], gini: [23], ketimpangan: [23],
+  penduduk: [12], kependudukan: [12], fertilitas: [12], migrasi: [12],
+  inflasi: [3], harga: [3], ihk: [3],
+  pdrb: [52], ekonomi: [52, 35], pertumbuhan: [52],
+  ipm: [26], pembangunan: [26],
+  ekspor: [8], impor: [8], perdagangan: [8],
+  pertanian: [55], pangan: [55],
+  industri: [9], manufaktur: [9],
+  kesehatan: [30],
+  pendidikan: [28],
+  pariwisata: [16],
+};
+
+function getSubjectIdsForKeyword(kw: string): number[] {
+  const ids: number[] = [];
+  for (const [keyword, subIds] of Object.entries(KEYWORD_SUBJECTS)) {
+    if (kw.includes(keyword)) ids.push(...subIds);
+  }
+  return [...new Set(ids)];
+}
+
 /**
  * Search variables within a subject (or all if undefined) and add matches to results array.
  */
@@ -364,8 +398,16 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
   // Title starts with query
   if (title.startsWith(query)) score += 50;
 
-  // Penalize very long titles (likely too specific/composite)
-  if (title.length > 100) score -= 10;
+  // Prefer "tingkat" or "persentase" variants (main indicators)
+  if (title.includes("tingkat") || title.includes("persentase") || title.includes("jumlah")) score += 20;
+
+  // Prefer shorter titles (more general/main indicators)
+  if (title.length < 60) score += 15;
+  if (title.length > 100) score -= 20;
+
+  // Penalize titles with "menurut" (breakdowns are less useful as primary)
+  const menurutCount = (title.match(/menurut/g) || []).length;
+  if (menurutCount > 1) score -= 15;
 
   return score;
 }
