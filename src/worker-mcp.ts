@@ -22,22 +22,13 @@ async function checkRateLimit(
 
 /**
  * MCP handler — receives requests after OAuth validation.
- * The BPS API key is available in props.bpsApiKey (set during authorization).
+ * The BPS API key is available in ctx.props.bpsApiKey (set during authorization).
  */
 export const McpHandler = {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Props are injected by OAuthProvider into request headers
-    const propsHeader = request.headers.get("x-oauth-props");
-    let bpsApiKey: string | null = null;
-
-    if (propsHeader) {
-      try {
-        const props = JSON.parse(propsHeader);
-        bpsApiKey = props.bpsApiKey;
-      } catch {
-        // ignore parse errors
-      }
-    }
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Props injected by OAuthProvider into ctx
+    const props = (ctx as unknown as { props?: { bpsApiKey?: string } }).props;
+    let bpsApiKey: string | null = props?.bpsApiKey || null;
 
     // Fallback: also accept X-BPS-API-Key header for non-OAuth clients
     if (!bpsApiKey) {
