@@ -39,15 +39,7 @@ npx wrangler kv namespace create BPS_CACHE --preview
 
 Update the `preview_id` field in `wrangler.toml` with the preview namespace ID.
 
-### 4. Set BPS API key as secret
-
-```bash
-npx wrangler secret put BPS_API_KEY
-```
-
-Enter your BPS API key when prompted. This stores it encrypted — it will NOT be in `wrangler.toml`.
-
-### 5. Deploy
+### 4. Deploy
 
 ```bash
 npm run deploy
@@ -93,7 +85,7 @@ Add header: `X-BPS-API-Key: your_api_key`
 
 ## BYOK Mode (Per-Request API Key)
 
-The worker supports BYOK — pass the BPS API key per request via the `X-BPS-API-Key` header. This is useful when multiple users with different BPS API keys share a single deployed worker.
+The worker **requires** each user to provide their own BPS API key via the `X-BPS-API-Key` header. There is no server-side fallback key — requests without this header will receive a `401 Unauthorized` response.
 
 ```bash
 curl https://bps-mcp-server.<your-subdomain>.workers.dev/mcp \

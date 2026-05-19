@@ -1,6 +1,6 @@
 # BPS MCP Server
 
-[![CI](https://github.com/murphi/bps-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/murphi/bps-mcp-server/actions/workflows/ci.yml)
+[![CI](https://github.com/setiapam/bps-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/setiapam/bps-mcp-server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
@@ -18,7 +18,7 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 - **In-memory cache** dengan TTL per tipe data
 - **Bilingual** — mendukung bahasa Indonesia dan Inggris
 - **Atribusi BPS** otomatis di setiap response (sesuai ToU)
-- **BYOK** (Bring Your Own Key) — setiap user menggunakan API key BPS sendiri
+- **BYOK** (Bring Your Own Key) — setiap user wajib menggunakan API key BPS sendiri (mandatory untuk remote/worker)
 
 ## Prasyarat
 
@@ -36,7 +36,7 @@ BPS_API_KEY=your_key npx bps-mcp-server
 ### Clone & Run
 
 ```bash
-git clone https://github.com/murphi/bps-mcp-server
+git clone https://github.com/setiapam/bps-mcp-server
 cd bps-mcp-server
 npm install
 npm run build
@@ -291,7 +291,7 @@ Server ini mengintegrasikan dua sumber data yang saling melengkapi:
 ## Development
 
 ```bash
-git clone https://github.com/murphi/bps-mcp-server
+git clone https://github.com/setiapam/bps-mcp-server
 cd bps-mcp-server
 npm install
 npm run build

@@ -6,7 +6,6 @@ import { KVCache } from "./services/kv-cache.js";
 
 export interface Env {
   BPS_CACHE: KVNamespace;
-  BPS_API_KEY?: string;
   BPS_API_BASE_URL?: string;
   BPS_DEFAULT_LANG?: string;
   BPS_DEFAULT_DOMAIN?: string;
@@ -57,13 +56,13 @@ export default {
     }
 
     if (url.pathname === "/mcp") {
-      const apiKey = request.headers.get("x-bps-api-key") || env.BPS_API_KEY;
+      const apiKey = request.headers.get("x-bps-api-key");
       if (!apiKey) {
         return addCorsHeaders(
           new Response(
             JSON.stringify({
               error:
-                "Missing BPS API key. Provide via X-BPS-API-Key header or configure BPS_API_KEY secret.",
+                "Missing BPS API key. Provide via X-BPS-API-Key header.",
             }),
             { status: 401, headers: { "Content-Type": "application/json" } }
           )
