@@ -57,7 +57,7 @@ export function createServer(
   registerAllStatsTools(server, allStatsClient);
 
   // Smart AI-friendly tools (one-shot data retrieval)
-  registerSmartTools(server, client, resolver, config);
+  registerSmartTools(server, client, resolver, config, cache);
 
   // Utility
   registerUtilityTools(server, cache);

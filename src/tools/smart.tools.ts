@@ -7,6 +7,8 @@ import { formatDynamicData } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { logger } from "../utils/logger.js";
 
+import type { ICacheProvider } from "../services/cache.js";
+
 /**
  * AI-friendly shortcut tools that reduce multi-step workflows to single calls.
  */
@@ -14,7 +16,8 @@ export function registerSmartTools(
   server: McpServer,
   client: BpsClient,
   resolver: DomainResolver,
-  config: Config
+  config: Config,
+  cache: ICacheProvider | null
 ): void {
   // ---------- find_variable ----------
   server.tool(
@@ -169,6 +172,19 @@ Contoh:
         let bestVar: { var_id: number; title: string; sub_name: string; unit?: string } | null = null;
         const candidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
 
+        // Check learning cache first (previous successful lookups)
+        const cacheKey = `learn:${kw}:${domain}`;
+        if (cache) {
+          const cached = await cache.get(cacheKey);
+          if (cached) {
+            try {
+              bestVar = JSON.parse(cached);
+              logger.debug(`find_data: cache hit for "${kw}" → var_id=${bestVar?.var_id}`);
+            } catch { /* ignore */ }
+          }
+        }
+
+        if (!bestVar) {
         // Find subject IDs from keyword mapping + subject title matching
         const mappedSubjectIds = getSubjectIdsForKeyword(kw);
         const subjects = await client.listSubjects(domain);
@@ -220,6 +236,7 @@ Contoh:
         // Sort by relevance score
         candidates.sort((a, b) => b.score - a.score);
         bestVar = candidates[0] || null;
+        } // end if (!bestVar) — cache miss
 
         if (!bestVar) {
           // Fallback: try strategic indicators
@@ -313,6 +330,11 @@ Contoh:
             altLines.push("Gunakan `get_dynamic_data` dengan var_id di atas untuk mencoba variabel lain.");
           }
           return { content: [{ type: "text", text: appendAttribution(altLines.join("\n")) }] };
+        }
+
+        // Learning: cache successful variable lookup for future queries
+        if (cache && bestVar) {
+          await cache.set(cacheKey, JSON.stringify(bestVar), 30 * 24 * 3600); // 30 days
         }
 
         return { content: [{ type: "text", text: header + formatted }] };
