@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/setiapam/bps-mcp-server/compare/v0.10.1...v0.10.2) (2026-05-20)
+
+
+### Bug Fixes
+
+* correct AllStats proxy URL path construction ([fb348a2](https://github.com/setiapam/bps-mcp-server/commit/fb348a20e043e221646c6098863c7886762524e1))
+
 ## [0.10.1](https://github.com/setiapam/bps-mcp-server/compare/v0.10.0...v0.10.1) (2026-05-20)
 
 
