@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 BPS_API_BASE_URL = "https://bps-api.murphi.my.id/v1"
-BPS_ALLSTATS_BASE_URL = "https://bps-api.murphi.my.id/allstats"
+BPS_ALLSTATS_BASE_URL = "https://bps-api.murphi.my.id/allstats/"
 BPS_DEFAULT_LANG = "ind"
 BPS_DEFAULT_DOMAIN = "0000"
 

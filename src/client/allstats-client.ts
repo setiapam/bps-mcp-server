@@ -127,7 +127,10 @@ export class AllStatsClient {
   // ---------- HTTP ----------
 
   private async fetchHtml(path: string, params: Record<string, string>): Promise<string> {
-    const url = new URL(path, this.baseUrl);
+    // Ensure base URL ends with / and path is relative for proper URL construction
+    const base = this.baseUrl.endsWith("/") ? this.baseUrl : this.baseUrl + "/";
+    const relativePath = path.startsWith("/") ? path.slice(1) : path;
+    const url = new URL(relativePath, base);
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
