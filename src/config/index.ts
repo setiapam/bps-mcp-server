@@ -11,6 +11,7 @@ const ConfigSchema = z
     oauthScopes: z.string().optional(),
 
     apiBaseUrl: z.url().default(DEFAULTS.API_BASE_URL),
+    allStatsBaseUrl: z.string().optional(),
     defaultLang: z.enum(["ind", "eng"]).default(DEFAULTS.DEFAULT_LANG),
     defaultDomain: z.string().default(DEFAULTS.DEFAULT_DOMAIN),
 
@@ -47,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     oauthTokenEndpoint: env.BPS_OAUTH_TOKEN_ENDPOINT,
     oauthScopes: env.BPS_OAUTH_SCOPES,
     apiBaseUrl: env.BPS_API_BASE_URL || DEFAULTS.API_BASE_URL,
+    allStatsBaseUrl: env.BPS_ALLSTATS_BASE_URL,
     defaultLang: env.BPS_DEFAULT_LANG || DEFAULTS.DEFAULT_LANG,
     defaultDomain: env.BPS_DEFAULT_DOMAIN || DEFAULTS.DEFAULT_DOMAIN,
     cacheEnabled: env.BPS_CACHE_ENABLED !== "false",

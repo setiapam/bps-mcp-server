@@ -34,7 +34,7 @@ export function createServer(
   });
 
   const client = new BpsClient(auth, cache, config);
-  const allStatsClient = new AllStatsClient(cache);
+  const allStatsClient = new AllStatsClient(cache, config.allStatsBaseUrl);
   const resolver = new DomainResolver(client);
 
   // WebAPI-based tools

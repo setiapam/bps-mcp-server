@@ -118,12 +118,16 @@ function cleanExcerpt(text: string): string {
 // ========== Client ==========
 
 export class AllStatsClient {
-  constructor(private readonly cache: ICacheProvider | null) {}
+  private readonly baseUrl: string;
+
+  constructor(private readonly cache: ICacheProvider | null, baseUrl?: string) {
+    this.baseUrl = baseUrl || ALLSTATS_BASE;
+  }
 
   // ---------- HTTP ----------
 
   private async fetchHtml(path: string, params: Record<string, string>): Promise<string> {
-    const url = new URL(path, ALLSTATS_BASE);
+    const url = new URL(path, this.baseUrl);
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
