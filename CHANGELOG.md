@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/setiapam/bps-mcp-server/compare/v0.6.1...v0.7.0) (2026-05-20)
+
+
+### Features
+
+* route AllStats search through homelab proxy ([ca0f477](https://github.com/setiapam/bps-mcp-server/commit/ca0f4778e9e022e5eaf3eba20b888ca3f5fcea82))
+
 ## [0.6.1](https://github.com/setiapam/bps-mcp-server/compare/v0.6.0...v0.6.1) (2026-05-20)
 
 
