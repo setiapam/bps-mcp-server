@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/setiapam/bps-mcp-server/compare/v0.6.0...v0.6.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* use homelab proxy for BPS API, remove debug endpoints ([be61c07](https://github.com/setiapam/bps-mcp-server/commit/be61c07afbc899f9b4d0cfcaa489048c1b125013))
+
 ## [0.6.0](https://github.com/setiapam/bps-mcp-server/compare/v0.5.4...v0.6.0) (2026-05-19)
 
 
