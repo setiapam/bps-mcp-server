@@ -42,9 +42,6 @@ export const McpHandler = {
       );
     }
 
-    // Debug: log key info (remove after fixing)
-    const keyInfo = `key_len=${bpsApiKey.length},prefix=${bpsApiKey.substring(0, 4)}`;
-
     // Rate limiting
     const maxRpm = parseInt(env.RATE_LIMIT_RPM || "", 10) || 60;
     const userId = `key:${bpsApiKey.substring(0, 8)}`;
@@ -72,7 +69,7 @@ export const McpHandler = {
       return response;
     } catch (error) {
       return new Response(
-        JSON.stringify({ error: error instanceof Error ? `${error.message} [${keyInfo}]` : "Internal server error" }),
+        JSON.stringify({ error: error instanceof Error ? error.message : "Internal server error" }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
