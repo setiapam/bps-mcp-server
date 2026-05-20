@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/setiapam/bps-mcp-server/compare/v0.8.0...v0.9.0) (2026-05-20)
+
+
+### Features
+
+* add learning cache - remember successful variable lookups for faster repeat queries ([2e4da82](https://github.com/setiapam/bps-mcp-server/commit/2e4da822fdb75fb0fb1441bea1ad70299e99fdb2))
+
 ## [0.8.0](https://github.com/setiapam/bps-mcp-server/compare/v0.7.0...v0.8.0) (2026-05-20)
 
 
