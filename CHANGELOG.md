@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/setiapam/bps-mcp-server/compare/v0.9.0...v0.10.0) (2026-05-20)
+
+
+### Features
+
+* learning cache and topic routing for faster AI queries ([898ec50](https://github.com/setiapam/bps-mcp-server/commit/898ec504994abc04e39a7fb35c9d584554109592))
+
 ## [0.9.0](https://github.com/setiapam/bps-mcp-server/compare/v0.8.0...v0.9.0) (2026-05-20)
 
 
