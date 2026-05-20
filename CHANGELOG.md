@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/setiapam/bps-mcp-server/compare/v0.7.0...v0.8.0) (2026-05-20)
+
+
+### Features
+
+* add topic routing guide in find_data for faster AI decision-making ([76909aa](https://github.com/setiapam/bps-mcp-server/commit/76909aaf555e2982094ccec5fce9cf8e8ea683c8))
+
 ## [0.7.0](https://github.com/setiapam/bps-mcp-server/compare/v0.6.1...v0.7.0) (2026-05-20)
 
 
