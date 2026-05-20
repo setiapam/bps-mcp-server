@@ -107,14 +107,34 @@ Secara otomatis: resolve nama wilayah → cari variabel → ambil data.
 
 Gunakan tool ini sebagai langkah PERTAMA ketika user bertanya tentang data statistik.
 
-Contoh:
-- find_data(query="jumlah penduduk", region="Jawa Timur", year="2023")
-- find_data(query="angka kemiskinan", region="Indonesia", year="2020,2021,2022,2023")
-- find_data(query="tingkat pengangguran", region="DKI Jakarta")
-- find_data(query="PDRB", region="Bali", year="2023")
-- find_data(query="inflasi", region="Indonesia", year="2024")
+## Quick Reference — Topik Umum
 
-Jika hasilnya tidak sesuai, gunakan find_variable untuk mencari variabel yang lebih spesifik, lalu get_dynamic_data.`,
+| Topik | Metode Tercepat | var_id (nasional) |
+|-------|----------------|-------------------|
+| Kemiskinan (jumlah) | find_data atau get_dynamic_data | 183, 185 |
+| Kemiskinan (%) | find_data atau get_dynamic_data | 184, 192 |
+| Pengangguran (TPT %) | get_dynamic_data(var="543") | 543 |
+| Pengangguran (jumlah) | get_dynamic_data(var="674") | 674 |
+| Inflasi (YoY) | list_strategic_indicators | - |
+| Pertumbuhan ekonomi | list_strategic_indicators | - |
+| IPM | list_strategic_indicators atau get_dynamic_data | 1706 |
+| Gini Rasio | get_dynamic_data(var="98") | 98 |
+| Jumlah Penduduk | get_dynamic_data(var="1452") | 1452 |
+| PDRB | list_strategic_indicators(domain=kode_prov) | - |
+| Ekspor/Impor | list_strategic_indicators atau get_trade_data | - |
+| Publikasi/BRS | search atau allstats_search | - |
+| Teks dalam PDF | allstats_deep_search | - |
+
+## Strategi:
+1. Data angka terbaru (headline) → list_strategic_indicators
+2. Data angka historis/spesifik → find_data atau get_dynamic_data + var_id di atas
+3. Cari publikasi/tabel/BRS → search atau allstats_search
+4. Cari teks di dalam PDF → allstats_deep_search
+
+Contoh:
+- find_data(query="penduduk miskin", region="Indonesia", year="2023")
+- find_data(query="pengangguran", region="Jawa Timur", year="2023")
+- find_data(query="PDRB", region="Bali", year="2023")`,
     {
       query: z.string().describe("Deskripsi data yang dicari (misal: jumlah penduduk, angka kemiskinan, inflasi, PDRB, pengangguran)"),
       region: z.string().default("Indonesia").describe("Nama wilayah (misal: Indonesia, Jawa Timur, Surabaya, DKI Jakarta). Mendukung nama resmi dan singkatan."),
