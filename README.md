@@ -101,6 +101,8 @@ Deploy sebagai serverless worker di akun Cloudflare kamu:
 
 Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md).
 
+> **Catatan:** Jika deploy di Cloudflare Workers, BPS API tidak bisa diakses langsung karena Cloudflare bot detection memblokir request antar-Cloudflare. Gunakan [bps-api-proxy](https://github.com/setiapam/bps-api-proxy) sebagai relay — deploy di server dengan IP residential (homelab, VPS non-cloud, dll) dan set `BPS_API_BASE_URL` ke URL proxy.
+
 ## Konfigurasi MCP Client
 
 ### Claude Desktop
