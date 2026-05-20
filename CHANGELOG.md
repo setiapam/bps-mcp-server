@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/setiapam/bps-mcp-server/compare/v0.10.0...v0.10.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* add NODE_AUTH_TOKEN for npm publish ([eff5c74](https://github.com/setiapam/bps-mcp-server/commit/eff5c742a2ba726c5f175e52587f277ebb0ac440))
+
 ## [0.10.0](https://github.com/setiapam/bps-mcp-server/compare/v0.9.0...v0.10.0) (2026-05-20)
 
 
