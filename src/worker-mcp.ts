@@ -3,6 +3,7 @@ import { ApiKeyProvider } from "./auth/api-key.provider.js";
 import { loadWorkerConfig } from "./config/worker-config.js";
 import { createServer } from "./server.js";
 import { KVCache } from "./services/kv-cache.js";
+import { KVStore } from "./services/kv-store.js";
 import type { Env } from "./worker.js";
 
 // Rate limiting (fixed window counter)
@@ -57,7 +58,8 @@ export const McpHandler = {
       const config = loadWorkerConfig(env, bpsApiKey);
       const auth = new ApiKeyProvider(bpsApiKey);
       const cache = new KVCache(env.BPS_CACHE);
-      const { server } = createServer(config, auth, cache);
+      const kvStore = new KVStore(env.BPS_CACHE);
+      const { server } = createServer(config, auth, cache, kvStore);
 
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,

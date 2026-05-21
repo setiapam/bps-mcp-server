@@ -7,7 +7,16 @@ import { formatDynamicData } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { logger } from "../utils/logger.js";
 
-import type { ICacheProvider } from "../services/cache.js";
+import type { IPersistentStore } from "../services/persistent-store.js";
+import {
+  lookupVar,
+  learnVar,
+  invalidateVar,
+  lookupPeriod,
+  learnPeriod,
+  invalidatePeriod,
+  normalizeKeyword,
+} from "../services/learning.js";
 
 /**
  * AI-friendly shortcut tools that reduce multi-step workflows to single calls.
@@ -17,7 +26,7 @@ export function registerSmartTools(
   client: BpsClient,
   resolver: DomainResolver,
   config: Config,
-  cache: ICacheProvider | null
+  store: IPersistentStore | null
 ): void {
   // ---------- find_variable ----------
   server.tool(
@@ -167,106 +176,21 @@ Contoh:
           }
         }
 
-        // Step 2: Find matching variable by searching relevant subjects
-        const kw = query.toLowerCase();
-        let bestVar: { var_id: number; title: string; sub_name: string; unit?: string } | null = null;
+        // Step 2: Find variable via 3-layer lookup
+        const kw = normalizeKeyword(query);
+        let bestVar = await lookupVar(query, domain, store);
+        let fromLearning = !!bestVar;
         const candidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
 
-        // Check learning cache first (previous successful lookups)
-        const cacheKey = `learn:${kw}:${domain}`;
-        if (cache) {
-          const cached = await cache.get(cacheKey);
-          if (cached) {
-            try {
-              bestVar = JSON.parse(cached);
-              logger.debug(`find_data: cache hit for "${kw}" → var_id=${bestVar?.var_id}`);
-            } catch { /* ignore */ }
-          }
-        }
-
         if (!bestVar) {
-        // Find subject IDs from keyword mapping + subject title matching
-        const mappedSubjectIds = getSubjectIdsForKeyword(kw);
-        const subjects = await client.listSubjects(domain);
-        const relevantSubjects = subjects.data.filter(s => {
-          const titleLower = s.title.toLowerCase();
-          return kw.split(/\s+/).some(w => w.length > 2 && titleLower.includes(w)) || titleLower.includes(kw);
-        });
-
-        const subjectIdsToSearch = [
-          ...new Set([...mappedSubjectIds, ...relevantSubjects.map(s => s.sub_id)])
-        ];
-
-        // Search in relevant subjects
-        for (const subId of subjectIdsToSearch.slice(0, 5)) {
-          const result = await client.listVariables(domain, subId, undefined, 1, 100);
-          if (!result.data || result.data.length === 0) continue;
-
-          for (const v of result.data) {
-            const titleLower = v.title.toLowerCase();
-            const score = computeRelevanceScore(kw, titleLower, v.sub_name?.toLowerCase() || "");
-            if (score > 0) {
-              candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
-            }
-          }
-          if (candidates.length >= 10) break;
+          bestVar = await fullSearchVar(client, kw, domain, candidates);
+          fromLearning = false;
         }
-
-        // If no results from subject-based search, try without subject filter
-        if (candidates.length === 0) {
-          const domainsToSearch = domain === "0000" ? ["0000"] : [domain, "0000"];
-          for (const searchDomain of domainsToSearch) {
-            for (let page = 1; page <= 2; page++) {
-              const result = await client.listVariables(searchDomain, undefined, undefined, page, 100);
-              if (!result.data || result.data.length === 0) break;
-              for (const v of result.data) {
-                const titleLower = v.title.toLowerCase();
-                const score = computeRelevanceScore(kw, titleLower, v.sub_name?.toLowerCase() || "");
-                if (score > 0) {
-                  candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
-                }
-              }
-              if (candidates.length >= 5) break;
-              if (result.data.length < 100) break;
-            }
-            if (candidates.length >= 5) break;
-          }
-        }
-
-        // Sort by relevance score
-        candidates.sort((a, b) => b.score - a.score);
-        bestVar = candidates[0] || null;
-        } // end if (!bestVar) — cache miss
 
         if (!bestVar) {
           // Fallback: try strategic indicators
-          const indicators = await client.listStrategicIndicators(domain);
-          if (indicators.data && indicators.data.length > 0) {
-            for (const ind of indicators.data) {
-              const titleLower = ind.title.toLowerCase();
-              if (titleLower.includes(kw) || kw.split(/\s+/).some(w => titleLower.includes(w))) {
-                // Return strategic indicator data directly
-                const lines = [
-                  `## ${ind.title}`,
-                  `**Wilayah:** ${domainName} (${domain})`,
-                  "",
-                ];
-                if (ind.data) {
-                  lines.push("| Periode | Nilai |");
-                  lines.push("| --- | --- |");
-                  const entries = Object.entries(ind.data);
-                  // Filter by year if specified
-                  const filtered = year
-                    ? entries.filter(([k]) => year.split(",").some(y => k.includes(y)))
-                    : entries.slice(-10);
-                  for (const [period, value] of filtered) {
-                    lines.push(`| ${period} | ${typeof value === "number" ? value.toLocaleString("id-ID") : value} |`);
-                  }
-                }
-                return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
-              }
-            }
-          }
+          const indResult = await tryStrategicIndicators(client, kw, domain, domainName, year);
+          if (indResult) return indResult;
 
           return {
             content: [{
@@ -282,40 +206,37 @@ Contoh:
           };
         }
 
-        // Step 3: Get data
+        // Step 3: Resolve period
         logger.debug(`find_data: using var_id=${bestVar.var_id} (${bestVar.title}) for query="${query}"`);
+        const periodParam = await resolvePeriod(client, store, bestVar.var_id, domain, year);
 
-        // Resolve year to period IDs if needed
-        let periodParam = year;
-        if (year) {
-          try {
-            const periods = await client.listPeriods(domain, bestVar.var_id);
-            if (periods.length > 0) {
-              const yearNums = year.split(",").map(y => y.trim());
-              // BPS API returns periods with various field names: th_name, th, val
-              const matchingPeriods = periods.filter(p => {
-                const pAny = p as unknown as Record<string, unknown>;
-                const thName = String(pAny.th_name || pAny.th || "");
-                const thVal = String(pAny.val || "");
-                const thId = String(p.th_id);
-                return yearNums.some(y => thName.includes(y) || thVal.includes(y) || thId === y);
-              });
-              if (matchingPeriods.length > 0) {
-                periodParam = matchingPeriods.map(p => String(p.th_id)).join(",");
-              }
-            }
-          } catch {
-            // If period lookup fails, try with raw year value
+        // Step 4: Get data
+        let result = await client.getDynamicData(domain, String(bestVar.var_id), periodParam);
+
+        // Self-healing: if data empty and var came from learning, invalidate and retry full search
+        if ((!result.datacontent || Object.keys(result.datacontent).length === 0) && fromLearning) {
+          logger.debug(`find_data: self-healing — invalidating learned var_id=${bestVar.var_id}`);
+          await invalidateVar(query, domain, store);
+          if (year) {
+            for (const y of year.split(",")) await invalidatePeriod(bestVar.var_id, domain, y.trim(), store);
+          }
+
+          // Retry with full search
+          const retryCandidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
+          const retryVar = await fullSearchVar(client, kw, domain, retryCandidates);
+          if (retryVar) {
+            bestVar = retryVar;
+            fromLearning = false;
+            const retryPeriod = await resolvePeriod(client, store, bestVar.var_id, domain, year);
+            result = await client.getDynamicData(domain, String(bestVar.var_id), retryPeriod);
+            candidates.push(...retryCandidates);
           }
         }
 
-        const result = await client.getDynamicData(domain, String(bestVar.var_id), periodParam);
         const formatted = formatDynamicData(result, domain, config.defaultLang);
-
-        // Prepend context
         const header = `**Pencarian:** "${query}" di ${domainName}${year ? ` (${year})` : ""}\n**Variabel:** ${bestVar.title} (ID: ${bestVar.var_id})\n\n`;
 
-        // If no datacontent, show alternatives
+        // Still no data after retry
         if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
           const altLines = [
             `Data untuk variabel "${bestVar.title}" tidak tersedia${year ? ` untuk tahun ${year}` : ""} di ${domainName}.`,
@@ -332,10 +253,8 @@ Contoh:
           return { content: [{ type: "text", text: appendAttribution(altLines.join("\n")) }] };
         }
 
-        // Learning: cache successful variable lookup for future queries
-        if (cache && bestVar) {
-          await cache.set(cacheKey, JSON.stringify(bestVar), 30 * 24 * 3600); // 30 days
-        }
+        // Success — learn the variable mapping
+        await learnVar(query, domain, bestVar, store);
 
         return { content: [{ type: "text", text: header + formatted }] };
       } catch (error) {
@@ -368,6 +287,156 @@ function getSubjectIdsForKeyword(kw: string): number[] {
     if (kw.includes(keyword)) ids.push(...subIds);
   }
   return [...new Set(ids)];
+}
+
+/** Full search flow (Layer 3): search subjects → variables → score → return best. */
+async function fullSearchVar(
+  client: BpsClient,
+  kw: string,
+  domain: string,
+  candidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }>
+): Promise<{ var_id: number; title: string; sub_name: string; unit?: string } | null> {
+  const mappedSubjectIds = getSubjectIdsForKeyword(kw);
+  const subjects = await client.listSubjects(domain);
+  const relevantSubjects = subjects.data.filter(s => {
+    const titleLower = s.title.toLowerCase();
+    return kw.split(/\s+/).some(w => w.length > 2 && titleLower.includes(w)) || titleLower.includes(kw);
+  });
+
+  const subjectIdsToSearch = [
+    ...new Set([...mappedSubjectIds, ...relevantSubjects.map(s => s.sub_id)])
+  ];
+
+  for (const subId of subjectIdsToSearch.slice(0, 5)) {
+    const result = await client.listVariables(domain, subId, undefined, 1, 100);
+    if (!result.data || result.data.length === 0) continue;
+    for (const v of result.data) {
+      const score = computeRelevanceScore(kw, v.title.toLowerCase(), v.sub_name?.toLowerCase() || "");
+      if (score > 0) candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
+    }
+    if (candidates.length >= 10) break;
+  }
+
+  if (candidates.length === 0) {
+    const domainsToSearch = domain === "0000" ? ["0000"] : [domain, "0000"];
+    for (const searchDomain of domainsToSearch) {
+      for (let page = 1; page <= 2; page++) {
+        const result = await client.listVariables(searchDomain, undefined, undefined, page, 100);
+        if (!result.data || result.data.length === 0) break;
+        for (const v of result.data) {
+          const score = computeRelevanceScore(kw, v.title.toLowerCase(), v.sub_name?.toLowerCase() || "");
+          if (score > 0) candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
+        }
+        if (candidates.length >= 5) break;
+        if (result.data.length < 100) break;
+      }
+      if (candidates.length >= 5) break;
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (candidates[0]) {
+    return { var_id: candidates[0].var_id, title: candidates[0].title, sub_name: candidates[0].sub_name, unit: candidates[0].unit };
+  }
+  return null;
+}
+
+/** Resolve year to period IDs, using learning store first. */
+async function resolvePeriod(
+  client: BpsClient,
+  store: IPersistentStore | null,
+  varId: number,
+  domain: string,
+  year: string | undefined
+): Promise<string | undefined> {
+  if (!year) {
+    // No year specified — get latest available period
+    try {
+      const periods = await client.listPeriods(domain, varId);
+      if (periods.length > 0) {
+        // periods are typically sorted descending; take the first (latest)
+        const latest = periods[0];
+        return String(latest.th_id);
+      }
+    } catch { /* fall through */ }
+    return undefined;
+  }
+
+  const yearNums = year.split(",").map(y => y.trim());
+  const learnedPeriods: string[] = [];
+  for (const y of yearNums) {
+    const learned = await lookupPeriod(varId, domain, y, store);
+    if (learned) learnedPeriods.push(learned);
+  }
+
+  if (learnedPeriods.length === yearNums.length) {
+    return learnedPeriods.join(",");
+  }
+
+  // Fallback: call list_periods API
+  try {
+    const periods = await client.listPeriods(domain, varId);
+    if (periods.length > 0) {
+      const matchingPeriods = periods.filter(p => {
+        const pAny = p as unknown as Record<string, unknown>;
+        const thName = String(pAny.th_name || pAny.th || "");
+        const thVal = String(pAny.val || "");
+        const thId = String(p.th_id);
+        return yearNums.some(y => thName.includes(y) || thVal.includes(y) || thId === y);
+      });
+      if (matchingPeriods.length > 0) {
+        // Learn period mappings
+        for (const p of matchingPeriods) {
+          const pAny = p as unknown as Record<string, unknown>;
+          const thName = String(pAny.th_name || pAny.th || pAny.val || "");
+          const matchedYear = yearNums.find(y => thName.includes(y));
+          if (matchedYear) {
+            await learnPeriod(varId, domain, matchedYear, String(p.th_id), store);
+          }
+        }
+        return matchingPeriods.map(p => String(p.th_id)).join(",");
+      }
+    }
+  } catch {
+    // If period lookup fails, use raw year value
+  }
+  return year;
+}
+
+/** Try strategic indicators as fallback. */
+async function tryStrategicIndicators(
+  client: BpsClient,
+  kw: string,
+  domain: string,
+  domainName: string,
+  year: string | undefined
+): Promise<{ content: Array<{ type: "text"; text: string }> } | null> {
+  const indicators = await client.listStrategicIndicators(domain);
+  if (!indicators.data || indicators.data.length === 0) return null;
+
+  for (const ind of indicators.data) {
+    const titleLower = ind.title.toLowerCase();
+    if (titleLower.includes(kw) || kw.split(/\s+/).some(w => titleLower.includes(w))) {
+      const lines = [
+        `## ${ind.title}`,
+        `**Wilayah:** ${domainName} (${domain})`,
+        "",
+      ];
+      if (ind.data) {
+        lines.push("| Periode | Nilai |");
+        lines.push("| --- | --- |");
+        const entries = Object.entries(ind.data);
+        const filtered = year
+          ? entries.filter(([k]) => year.split(",").some(y => k.includes(y)))
+          : entries.slice(-10);
+        for (const [period, value] of filtered) {
+          lines.push(`| ${period} | ${typeof value === "number" ? value.toLocaleString("id-ID") : value} |`);
+        }
+      }
+      return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
+    }
+  }
+  return null;
 }
 
 /**

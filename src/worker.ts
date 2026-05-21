@@ -2,6 +2,7 @@ import OAuthProvider, { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { handleAuthorize } from "./auth/oauth-handler.js";
 import { McpHandler } from "./worker-mcp.js";
+import { handleLearningApi } from "./api/learning-api.js";
 
 export interface Env {
   OAUTH_KV: KVNamespace;
@@ -40,6 +41,11 @@ const oauthOptions = {
       if (url.pathname === "/authorize") {
         const oauthHelpers: OAuthHelpers = getOAuthApi(oauthOptions, env);
         return handleAuthorize(request, oauthHelpers);
+      }
+
+      // Learning sync API
+      if (url.pathname.startsWith("/api/learned-")) {
+        return handleLearningApi(request, env.BPS_CACHE);
       }
 
       return new Response("Not found", { status: 404 });

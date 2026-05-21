@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "./config/index.js";
 import type { IAuthProvider } from "./auth/types.js";
 import type { ICacheProvider } from "./services/cache.js";
+import type { IPersistentStore } from "./services/persistent-store.js";
 import { BpsClient } from "./client/bps-client.js";
 import { AllStatsClient } from "./client/allstats-client.js";
 import { DomainResolver } from "./services/domain-resolver.js";
@@ -26,7 +27,8 @@ import { registerPrompts } from "./prompts/analysis.prompts.js";
 export function createServer(
   config: Config,
   auth: IAuthProvider,
-  cache: ICacheProvider | null
+  cache: ICacheProvider | null,
+  store?: IPersistentStore | null
 ): { server: McpServer; client: BpsClient; resolver: DomainResolver } {
   const server = new McpServer({
     name: "bps-statistics",
@@ -57,7 +59,7 @@ export function createServer(
   registerAllStatsTools(server, allStatsClient);
 
   // Smart AI-friendly tools (one-shot data retrieval)
-  registerSmartTools(server, client, resolver, config, cache);
+  registerSmartTools(server, client, resolver, config, store ?? null);
 
   // Utility
   registerUtilityTools(server, cache);

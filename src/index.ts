@@ -3,6 +3,7 @@
 import { loadConfig } from "./config/index.js";
 import { createAuthProvider } from "./auth/factory.js";
 import { InMemoryCache } from "./services/cache.js";
+import { FileStore } from "./services/file-store.js";
 import { createServer } from "./server.js";
 import { startStdioTransport } from "./transport/stdio.js";
 import { setLogLevel, logger } from "./utils/logger.js";
@@ -23,7 +24,8 @@ async function main(): Promise<void> {
 
     const auth = createAuthProvider(config);
     const cache = config.cacheEnabled ? new InMemoryCache(config.cacheMaxEntries) : null;
-    const { server } = createServer(config, auth, cache);
+    const store = new FileStore();
+    const { server } = createServer(config, auth, cache, store);
 
     await startStdioTransport(server);
   } catch (error) {
