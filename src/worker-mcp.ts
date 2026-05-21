@@ -4,6 +4,7 @@ import { loadWorkerConfig } from "./config/worker-config.js";
 import { createServer } from "./server.js";
 import { KVCache } from "./services/kv-cache.js";
 import { KVStore } from "./services/kv-store.js";
+import pkg from "../package.json";
 import type { Env } from "./worker.js";
 
 // Rate limiting (fixed window counter)
@@ -59,7 +60,7 @@ export const McpHandler = {
       const auth = new ApiKeyProvider(bpsApiKey);
       const cache = new KVCache(env.BPS_CACHE);
       const kvStore = new KVStore(env.BPS_CACHE);
-      const { server } = createServer(config, auth, cache, kvStore);
+      const { server } = createServer(config, auth, cache, kvStore, pkg.version);
 
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
