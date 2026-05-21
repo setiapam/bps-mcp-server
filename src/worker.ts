@@ -4,6 +4,9 @@ import { handleAuthorize } from "./auth/oauth-handler.js";
 import { McpHandler } from "./worker-mcp.js";
 import { handleLearningApi } from "./api/learning-api.js";
 
+// Wrangler bundles with esbuild which resolves JSON imports at build time
+import pkg from "../package.json";
+
 export interface Env {
   OAUTH_KV: KVNamespace;
   BPS_CACHE: KVNamespace;
@@ -25,7 +28,7 @@ const oauthOptions = {
         return new Response(
           JSON.stringify({
             name: "bps-mcp-server",
-            version: "0.11.0",
+            version: pkg.version,
             status: "ok",
             transport: "streamable-http",
             mcpEndpoint: "/mcp",

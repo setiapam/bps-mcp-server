@@ -3,6 +3,7 @@ import type { Config } from "./config/index.js";
 import type { IAuthProvider } from "./auth/types.js";
 import type { ICacheProvider } from "./services/cache.js";
 import type { IPersistentStore } from "./services/persistent-store.js";
+import { VERSION } from "./config/version.js";
 import { BpsClient } from "./client/bps-client.js";
 import { AllStatsClient } from "./client/allstats-client.js";
 import { DomainResolver } from "./services/domain-resolver.js";
@@ -32,7 +33,7 @@ export function createServer(
 ): { server: McpServer; client: BpsClient; resolver: DomainResolver } {
   const server = new McpServer({
     name: "bps-statistics",
-    version: "0.11.0",
+    version: VERSION,
   });
 
   const client = new BpsClient(auth, cache, config);
