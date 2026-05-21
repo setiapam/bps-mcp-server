@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/setiapam/bps-mcp-server/compare/v0.12.1...v0.13.0) (2026-05-21)
+
+
+### Features
+
+* add compare_data, get_trend, get_ranking tools ([9db03d0](https://github.com/setiapam/bps-mcp-server/commit/9db03d0126a57cb4095d58a2a24298655fe9710d))
+
 ## [0.12.1](https://github.com/setiapam/bps-mcp-server/compare/v0.12.0...v0.12.1) (2026-05-21)
 
 
