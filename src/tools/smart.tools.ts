@@ -233,7 +233,7 @@ Contoh:
           }
         }
 
-        const formatted = formatDynamicData(result, domain, config.defaultLang, bestVar.title);
+        const formatted = formatDynamicData(result, domain, config.defaultLang);
         const header = `**Pencarian:** "${query}" di ${domainName}${year ? ` (${year})` : ""}\n**Variabel:** ${bestVar.title} (ID: ${bestVar.var_id})\n\n`;
 
         // Still no data after retry

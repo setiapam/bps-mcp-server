@@ -113,11 +113,13 @@ export async function lookupVar(
   const normalized = normalizeKeyword(query);
   const canonical = resolveCanonical(normalized);
 
-  // Layer 1: KNOWN_VARS
-  const known = KNOWN_VARS[canonical];
-  if (known && known.length > 0) {
-    logger.debug(`lookupVar: KNOWN_VARS hit "${canonical}" → var_id=${known[0].var_id}`);
-    return known[0];
+  // Layer 1: KNOWN_VARS — only for national domain (var_ids differ per domain)
+  if (domain === "0000") {
+    const known = KNOWN_VARS[canonical];
+    if (known && known.length > 0) {
+      logger.debug(`lookupVar: KNOWN_VARS hit "${canonical}" → var_id=${known[0].var_id}`);
+      return known[0];
+    }
   }
 
   if (!store) return null;

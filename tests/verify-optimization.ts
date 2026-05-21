@@ -49,31 +49,35 @@ async function testLayer1KnownVars() {
   console.log("\n--- Test: Layer 1 (KNOWN_VARS) ---");
   const store = new TestStore();
 
-  // Direct known keyword
-  const r1 = await lookupVar("kemiskinan", "3500", store);
-  assert(r1 !== null && r1.var_id === 184, '"kemiskinan" → var_id 184 (via alias → "miskin")');
+  // Direct known keyword (national domain only)
+  const r1 = await lookupVar("kemiskinan", "0000", store);
+  assert(r1 !== null && r1.var_id === 184, '"kemiskinan" at 0000 → var_id 184 (via alias → "miskin")');
 
   const r2 = await lookupVar("pengangguran", "0000", store);
-  assert(r2 !== null && r2.var_id === 543, '"pengangguran" → var_id 543');
+  assert(r2 !== null && r2.var_id === 543, '"pengangguran" at 0000 → var_id 543');
 
   const r3 = await lookupVar("ipm", "0000", store);
-  assert(r3 !== null && r3.var_id === 1706, '"ipm" → var_id 1706');
+  assert(r3 !== null && r3.var_id === 1706, '"ipm" at 0000 → var_id 1706');
 
   const r4 = await lookupVar("gini", "0000", store);
-  assert(r4 !== null && r4.var_id === 98, '"gini" → var_id 98');
+  assert(r4 !== null && r4.var_id === 98, '"gini" at 0000 → var_id 98');
 
-  // Alias resolution
-  const r5 = await lookupVar("berapa angka kemiskinan", "3500", store);
-  assert(r5 !== null && r5.var_id === 184, '"berapa angka kemiskinan" → normalized → alias → var_id 184');
+  // Alias resolution (national)
+  const r5 = await lookupVar("berapa angka kemiskinan", "0000", store);
+  assert(r5 !== null && r5.var_id === 184, '"berapa angka kemiskinan" at 0000 → normalized → alias → var_id 184');
 
   const r6 = await lookupVar("tpt", "0000", store);
-  assert(r6 !== null && r6.var_id === 543, '"tpt" → alias → var_id 543');
+  assert(r6 !== null && r6.var_id === 543, '"tpt" at 0000 → alias → var_id 543');
 
   const r7 = await lookupVar("ketimpangan", "0000", store);
-  assert(r7 !== null && r7.var_id === 98, '"ketimpangan" → alias → var_id 98');
+  assert(r7 !== null && r7.var_id === 98, '"ketimpangan" at 0000 → alias → var_id 98');
 
   const r8 = await lookupVar("jumlah penduduk", "0000", store);
-  assert(r8 !== null && r8.var_id === 1452, '"jumlah penduduk" → alias → var_id 1452');
+  assert(r8 !== null && r8.var_id === 1452, '"jumlah penduduk" at 0000 → alias → var_id 1452');
+
+  // KNOWN_VARS should NOT be used for non-national domains
+  const r9a = await lookupVar("kemiskinan", "3500", store);
+  assert(r9a === null, '"kemiskinan" at 3500 → null (KNOWN_VARS skipped for non-national)');
 
   // Unknown keyword — should return null (Layer 3 needed)
   const r9 = await lookupVar("ekspor kopi", "0000", store);

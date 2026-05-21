@@ -20,8 +20,7 @@ interface FormattedRow {
 export function formatDynamicData(
   response: BpsDynamicDataResponse,
   domain: string,
-  lang: "ind" | "eng" = "ind",
-  titleOverride?: string
+  lang: "ind" | "eng" = "ind"
 ): string {
   const datacontent = response.datacontent;
   if (!datacontent || Object.keys(datacontent).length === 0) {
@@ -63,11 +62,7 @@ export function formatDynamicData(
 
   // Title from variables
   const varNames = [...new Set(rows.map((r) => r.variable))];
-  if (titleOverride) {
-    lines.push(`## ${titleOverride}`);
-    lines.push(`**Domain:** ${domain}`);
-    lines.push("");
-  } else if (varNames.length > 0) {
+  if (varNames.length > 0) {
     lines.push(`## ${varNames.join(", ")}`);
     lines.push(`**Domain:** ${domain}`);
     lines.push("");
