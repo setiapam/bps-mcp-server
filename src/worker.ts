@@ -33,7 +33,7 @@ const oauthOptions = {
             transport: "streamable-http",
             mcpEndpoint: "/mcp",
             auth: "OAuth 2.1 (MCP spec compliant)",
-            tools: 36,
+            tools: 39,
             docs: "https://github.com/setiapam/bps-mcp-server",
             getApiKey: "https://webapi.bps.go.id",
           }),

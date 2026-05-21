@@ -8,7 +8,7 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 
 ## Fitur
 
-- **36 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search + AI-friendly shortcuts
+- **39 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search + AI-friendly shortcuts
 - **AI-friendly** — tool `find_data` memungkinkan AI mendapat data dalam 1 langkah (tanpa perlu navigasi hierarki BPS)
 - **Integrasi AllStats Search** — pencarian unified + full-text PDF search (tanpa API key)
 - **Smart fallback** — WebAPI search otomatis fallback ke AllStats jika tidak ada hasil
@@ -163,16 +163,19 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 }
 ```
 
-## Tools (36)
+## Tools (39)
 
-### AI-Friendly Smart Tools (2)
+### AI-Friendly Smart Tools (5)
 
 | Tool | Deskripsi |
 |------|-----------|
 | `find_data` | **Recommended** — Cari & ambil data dalam satu langkah (resolve wilayah + cari variabel + ambil data) |
 | `find_variable` | Cari variabel data berdasarkan kata kunci |
+| `compare_data` | Bandingkan data antar wilayah (2+ wilayah sekaligus dalam 1 panggilan) |
+| `get_trend` | Ambil data time-series/tren multi-tahun dalam 1 panggilan |
+| `get_ranking` | Ranking/peringkat provinsi berdasarkan indikator (top-N) |
 
-> **Untuk AI:** Gunakan `find_data` sebagai langkah pertama. Jika hasilnya kurang spesifik, gunakan `find_variable` lalu `get_dynamic_data`.
+> **Untuk AI:** Gunakan `find_data` untuk data 1 wilayah, `compare_data` untuk perbandingan, `get_trend` untuk tren, `get_ranking` untuk peringkat. Jika hasilnya kurang spesifik, gunakan `find_variable` lalu `get_dynamic_data`.
 
 ### WebAPI Tools (32)
 
@@ -236,6 +239,15 @@ Jika find_data gagal, AI bisa:
 - find_variable(keyword="miskin") → lihat variabel yang tersedia
 - list_strategic_indicators() → data headline terbaru
 - search(keyword="kemiskinan") → cari tabel/publikasi terkait
+
+User: "Bandingkan kemiskinan Jawa Timur dan Jawa Barat"
+AI menggunakan: compare_data(query="kemiskinan", regions="Jawa Timur, Jawa Barat")
+
+User: "Tren pengangguran Indonesia 2019-2024"
+AI menggunakan: get_trend(query="pengangguran", region="Indonesia", start_year="2019", end_year="2024")
+
+User: "10 provinsi termiskin"
+AI menggunakan: get_ranking(query="kemiskinan", top_n=10, order="highest")
 ```
 
 ## Contoh Query
@@ -243,6 +255,9 @@ Jika find_data gagal, AI bisa:
 ```
 "Berapa jumlah penduduk miskin Indonesia tahun 2023?"
 "Bandingkan angka kemiskinan Jawa Timur vs Jawa Barat 2020-2023"
+"Tren pengangguran Indonesia dari 2019 sampai 2024"
+"10 provinsi dengan kemiskinan tertinggi"
+"Peringkat IPM seluruh provinsi 2023"
 "Cari BRS terbaru tentang inflasi"
 "Data ekspor kopi Indonesia tahun 2024"
 "Cari publikasi tentang statistik telekomunikasi"
@@ -361,8 +376,9 @@ src/
 ├── prompts/        # MCP prompt templates
 ├── resources/      # MCP resources (domain lists)
 ├── services/       # Cache, domain resolver, data formatter
-├── tools/          # MCP tool definitions (36 tools)
+├── tools/          # MCP tool definitions (39 tools)
 │   ├── smart.tools.ts      # find_data, find_variable (AI shortcuts)
+│   ├── analysis.tools.ts   # compare_data, get_trend, get_ranking
 │   ├── dynamic-data.tools.ts  # Core data tools
 │   ├── search.tools.ts     # Search with AllStats fallback
 │   ├── allstats.tools.ts   # AllStats search & deep search

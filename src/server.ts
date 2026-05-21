@@ -16,6 +16,7 @@ import { registerSearchTools } from "./tools/search.tools.js";
 import { registerAllStatsTools } from "./tools/allstats.tools.js";
 import { registerUtilityTools } from "./tools/utility.tools.js";
 import { registerSmartTools } from "./tools/smart.tools.js";
+import { registerAnalysisTools } from "./tools/analysis.tools.js";
 import { registerInfographicTools } from "./tools/infographic.tools.js";
 import { registerCensusTools } from "./tools/census.tools.js";
 import { registerCsaTools } from "./tools/csa.tools.js";
@@ -61,6 +62,9 @@ export function createServer(
 
   // Smart AI-friendly tools (one-shot data retrieval)
   registerSmartTools(server, client, resolver, config, store ?? null);
+
+  // Analysis tools (compare, trend, ranking)
+  registerAnalysisTools(server, client, resolver, config, store ?? null);
 
   // Utility
   registerUtilityTools(server, cache);
