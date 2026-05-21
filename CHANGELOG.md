@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/setiapam/bps-mcp-server/compare/v0.12.0...v0.12.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* remove version.ts, pass version as param to createServer ([5d55328](https://github.com/setiapam/bps-mcp-server/commit/5d55328b395ccc62e9abc2236c3dece9e164054c))
+* sync version strings to 0.11.0 ([7e00533](https://github.com/setiapam/bps-mcp-server/commit/7e005333db4b64c84c5b67387b51dac3c00ddf57))
+
 ## [0.12.0](https://github.com/setiapam/bps-mcp-server/compare/v0.11.0...v0.12.0) (2026-05-21)
 
 
