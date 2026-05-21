@@ -20,7 +20,8 @@ interface FormattedRow {
 export function formatDynamicData(
   response: BpsDynamicDataResponse,
   domain: string,
-  lang: "ind" | "eng" = "ind"
+  lang: "ind" | "eng" = "ind",
+  titleOverride?: string
 ): string {
   const datacontent = response.datacontent;
   if (!datacontent || Object.keys(datacontent).length === 0) {
@@ -33,11 +34,11 @@ export function formatDynamicData(
   }
 
   // Build lookup maps
-  const varMap = buildMap(response.var, (v) => [String(v.var_id), v]);
-  const vervarMap = buildMap(response.vervar, (v) => [String(v.kode_vervar), v]);
-  const turvarMap = buildMap(response.turvar, (v) => [String(v.kode_turvar), v]);
-  const periodMap = buildMap(response.tahun, (v) => [String(v.th_id), v]);
-  const turthMap = buildMap(response.turtahun, (v) => [String(v.turth_id), v]);
+  const varMap = buildMap(response.var, (v) => [String(v.var_id ?? (v as unknown as Record<string, unknown>).val), v]);
+  const vervarMap = buildMap(response.vervar, (v) => [String(v.kode_vervar ?? (v as unknown as Record<string, unknown>).val), v]);
+  const turvarMap = buildMap(response.turvar, (v) => [String(v.kode_turvar ?? (v as unknown as Record<string, unknown>).val), v]);
+  const periodMap = buildMap(response.tahun, (v) => [String(v.th_id ?? (v as unknown as Record<string, unknown>).val), v]);
+  const turthMap = buildMap(response.turtahun, (v) => [String(v.turth_id ?? (v as unknown as Record<string, unknown>).val), v]);
 
   // Pre-sort keys longest-first (once) for efficient matching across all datacontent entries
   const varKeys = sortedKeys(varMap);
@@ -62,7 +63,11 @@ export function formatDynamicData(
 
   // Title from variables
   const varNames = [...new Set(rows.map((r) => r.variable))];
-  if (varNames.length > 0) {
+  if (titleOverride) {
+    lines.push(`## ${titleOverride}`);
+    lines.push(`**Domain:** ${domain}`);
+    lines.push("");
+  } else if (varNames.length > 0) {
     lines.push(`## ${varNames.join(", ")}`);
     lines.push(`**Domain:** ${domain}`);
     lines.push("");
@@ -82,8 +87,8 @@ export function formatDynamicData(
     }
 
     // Build a readable table
-    const hasVervar = varRows.some((r) => r.verticalVariable);
-    const hasTurvar = varRows.some((r) => r.derivedVariable);
+    const hasVervar = varRows.some((r) => r.verticalVariable && r.verticalVariable !== "Tidak ada");
+    const hasTurvar = varRows.some((r) => r.derivedVariable && r.derivedVariable !== "Tidak ada");
 
     // Header
     const headers: string[] = [];
@@ -146,11 +151,11 @@ function resolveDatacontentKey(
   const matchedTurth = findLongestMatch(key, turthMap, turthKeys);
 
   return {
-    variable: matchedVar?.title ?? "Data",
-    verticalVariable: matchedVervar?.label_vervar,
-    derivedVariable: matchedTurvar?.label_turvar,
-    period: matchedPeriod?.th_name ?? "N/A",
-    derivedPeriod: matchedTurth?.turth_name,
+    variable: matchedVar?.title ?? (matchedVar as unknown as Record<string, unknown>)?.label as string ?? "Data",
+    verticalVariable: matchedVervar?.label_vervar ?? (matchedVervar as unknown as Record<string, unknown>)?.label as string | undefined,
+    derivedVariable: matchedTurvar?.label_turvar ?? (matchedTurvar as unknown as Record<string, unknown>)?.label as string | undefined,
+    period: matchedPeriod?.th_name ?? (matchedPeriod as unknown as Record<string, unknown>)?.label as string ?? "N/A",
+    derivedPeriod: matchedTurth?.turth_name ?? (matchedTurth as unknown as Record<string, unknown>)?.label as string | undefined,
     value,
     unit: matchedVar?.unit,
   };
