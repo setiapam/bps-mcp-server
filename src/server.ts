@@ -32,7 +32,7 @@ export function createServer(
 ): { server: McpServer; client: BpsClient; resolver: DomainResolver } {
   const server = new McpServer({
     name: "bps-statistics",
-    version: "0.2.0",
+    version: "0.11.0",
   });
 
   const client = new BpsClient(auth, cache, config);

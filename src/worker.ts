@@ -25,7 +25,7 @@ const oauthOptions = {
         return new Response(
           JSON.stringify({
             name: "bps-mcp-server",
-            version: "0.4.0",
+            version: "0.11.0",
             status: "ok",
             transport: "streamable-http",
             mcpEndpoint: "/mcp",
