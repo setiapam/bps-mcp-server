@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/setiapam/bps-mcp-server/compare/v0.11.0...v0.12.0) (2026-05-21)
+
+
+### Features
+
+* add seed script for pre-populating provincial var_ids ([8d68d8e](https://github.com/setiapam/bps-mcp-server/commit/8d68d8e0a472c04db07e6c20d6bc6d6827a3fa5a))
+
+
+### Bug Fixes
+
+* KNOWN_VARS only for national domain — var_ids differ per domain ([907ca38](https://github.com/setiapam/bps-mcp-server/commit/907ca3857ecfc0889006cad9337b728366841d26))
+* resolve N/A period labels and incorrect var title in dynamic data ([425f72a](https://github.com/setiapam/bps-mcp-server/commit/425f72a69885b18dc414da6e2f6fda1b9c047be3))
+
 ## [0.11.0](https://github.com/setiapam/bps-mcp-server/compare/v0.10.2...v0.11.0) (2026-05-21)
 
 
