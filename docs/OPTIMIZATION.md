@@ -1,5 +1,7 @@
 # Optimasi `find_data` — Persistent Learning Store
 
+> **Lihat juga:** [SMART-TOOLS.md](./SMART-TOOLS.md) untuk dokumentasi logic `get_trend`, `compare_data`, dan `get_ranking`.
+
 ## Latar Belakang
 
 ### Masalah
@@ -141,7 +143,7 @@ const KNOWN_VARS: Record<string, { var_id: number; label: string }[]> = {
   tpt:           [{ var_id: 543, label: "Tingkat Pengangguran Terbuka (%)" }],
 
   // IPM
-  ipm:           [{ var_id: 1706, label: "Indeks Pembangunan Manusia" }],
+  ipm:           [{ var_id: 413, label: "[Metode Baru] Indeks Pembangunan Manusia (IPM)" }],
 
   // Ketimpangan
   gini:          [{ var_id: 98, label: "Gini Rasio" }],

@@ -27,7 +27,7 @@ const KNOWN_VARS: Record<string, LearnedVar[]> = {
     { var_id: 674, title: "Jumlah Pengangguran (jiwa)", sub_name: "Tenaga Kerja" },
   ],
   ipm: [
-    { var_id: 1706, title: "Indeks Pembangunan Manusia", sub_name: "IPM" },
+    { var_id: 413, title: "[Metode Baru] Indeks Pembangunan Manusia (IPM)", sub_name: "IPM" },
   ],
   gini: [
     { var_id: 98, title: "Gini Rasio", sub_name: "Kemiskinan dan Ketimpangan" },
