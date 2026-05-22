@@ -140,7 +140,7 @@ function resolveDatacontentKey(
 ): FormattedRow | null {
   // Strategy: strip known IDs from key to isolate vervar
   // Key format: {vervar}{var_id}{turvar?}{period}{trailing?}
-  let remaining = key;
+  const remaining = key;
   let matchedVar: BpsVariable | undefined;
   let matchedPeriod: BpsPeriod | undefined;
   let matchedTurvar: BpsDerivedVariable | undefined;
