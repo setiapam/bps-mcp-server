@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/setiapam/bps-mcp-server/compare/v0.13.0...v0.13.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **analysis:** fix get_trend, compare_data, get_ranking data accuracy ([e39bb89](https://github.com/setiapam/bps-mcp-server/commit/e39bb89da115dc5d5c84f6b29fec3640d2810666))
+
 ## [0.13.0](https://github.com/setiapam/bps-mcp-server/compare/v0.12.1...v0.13.0) (2026-05-21)
 
 
