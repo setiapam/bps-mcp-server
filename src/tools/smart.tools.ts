@@ -178,7 +178,10 @@ Contoh:
 
         // Step 2: Find variable via 3-layer lookup
         const kw = normalizeKeyword(query);
-        let bestVar = await lookupVar(query, domain, store);
+        // Skip cached lookup if query explicitly asks for breakdown (kab/kota)
+        // because cached var is likely the aggregate, not the breakdown
+        const asksBreakdown = /\b(kabupaten|kab[/\s]kota|per\s*kab)\b/.test(kw);
+        let bestVar = asksBreakdown ? null : await lookupVar(query, domain, store);
         let fromLearning = !!bestVar;
         const candidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
 
@@ -313,6 +316,16 @@ async function fullSearchVar(
     for (const v of result.data) {
       const score = computeRelevanceScore(kw, v.title.toLowerCase(), v.sub_name?.toLowerCase() || "");
       if (score > 0) candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
+    }
+    // BPS API caps at 10 per page regardless of perpage param — fetch more pages
+    const totalPages = result.page?.pages || 1;
+    for (let page = 2; page <= Math.min(totalPages, 5); page++) {
+      const nextPage = await client.listVariables(domain, subId, undefined, page, 100);
+      if (!nextPage.data || nextPage.data.length === 0) break;
+      for (const v of nextPage.data) {
+        const score = computeRelevanceScore(kw, v.title.toLowerCase(), v.sub_name?.toLowerCase() || "");
+        if (score > 0) candidates.push({ var_id: v.var_id, title: v.title, sub_name: v.sub_name, unit: v.unit, score });
+      }
     }
     if (candidates.length >= 10) break;
   }
@@ -517,8 +530,24 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
   if (title.length > 100) score -= 20;
 
   // Penalize titles with "menurut" (breakdowns are less useful as primary)
+  // UNLESS query explicitly asks for breakdown (kabupaten, kab, kota)
+  const queryAsksBreakdown = query.includes("kabupaten") || query.includes("kab") ||
+    (query.includes("kota") && !query.includes("perkotaan"));
   const menurutCount = (title.match(/menurut/g) || []).length;
-  if (menurutCount > 1) score -= 15;
+  if (menurutCount > 1 && !queryAsksBreakdown) score -= 15;
+
+  // Boost if query asks for kab/kota breakdown and title has it
+  if (queryAsksBreakdown && (title.includes("kabupaten") || title.includes("kab/"))) {
+    score += 60;
+  }
+
+  // Prefer "persentase" or "jumlah penduduk miskin" over "garis kemiskinan" or "indeks"
+  if (query.includes("miskin") || query.includes("kemiskinan")) {
+    if (title.includes("persentase")) score += 40;
+    else if (title.includes("jumlah penduduk miskin") || title.includes("jumlah penduduk miskin")) score += 20;
+    if (title.includes("garis kemiskinan")) score -= 30;
+    if (title.includes("indeks kedalaman") || title.includes("indeks keparahan")) score -= 20;
+  }
 
   return score;
 }
