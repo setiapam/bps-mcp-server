@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.2](https://github.com/setiapam/bps-mcp-server/compare/v0.13.1...v0.13.2) (2026-05-22)
+
+
+### Bug Fixes
+
+* **find_data:** support kab/kota breakdown queries ([7716db5](https://github.com/setiapam/bps-mcp-server/commit/7716db5ea19968f76a16f0982658d4f4bd49ed5d))
+* lint error - use const for non-reassigned variable ([05a0d5f](https://github.com/setiapam/bps-mcp-server/commit/05a0d5f8f5873d186efd284c922a53dd7070fb05))
+* resolve 8 edge cases in smart tools ([051d991](https://github.com/setiapam/bps-mcp-server/commit/051d9919f11af5ecc121b5b30c8691dfabaad547))
+
 ## [0.13.1](https://github.com/setiapam/bps-mcp-server/compare/v0.13.0...v0.13.1) (2026-05-22)
 
 
