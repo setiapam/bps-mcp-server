@@ -763,3 +763,83 @@ File: `src/tools/analysis.tools.ts` — cari `aggregateVervar` di `fetchDataForD
 // Tambah pattern baru untuk domain tertentu:
 if (vId === domain + "00") { aggregateVervar = vId; break; }
 ```
+
+
+---
+
+## Changelog (v0.13.2)
+
+### Fix #1: Data-Formatter Vervar Label Mismatch
+
+**Problem:** Semua kab/kota dilabel "Situbondo" karena `findLongestMatch` salah match vervar ID pendek (1, 2, 3...) via substring.
+
+**Root cause:** Vervar IDs sequential (1=Pacitan, 2=Ponorogo, 12=Situbondo). Key `1049701250` contains "12" (Situbondo) sebagai substring, padahal sebenarnya vervar 10 (Banyuwangi).
+
+**Fix:** `resolveDatacontentKey` sekarang menggunakan positional extraction:
+1. Cari var_id di key → split key menjadi prefix (vervar) dan suffix (period/turvar)
+2. Match vervar dari prefix secara exact atau startsWith
+3. Fallback ke `findLongestMatch` jika positional gagal
+
+### Fix #2: get_trend Provincial Aggregate
+
+**Problem:** `get_trend` di domain provinsi (3500) mengambil nilai kab/kota random, bukan aggregate provinsi.
+
+**Fix:** Expanded aggregate vervar detection:
+1. `9999` atau label "indonesia" (nasional)
+2. `domain[0:2] + "99"` (misal 3599 untuk domain 3500)
+3. `domain[0:4] + "0"` (misal 35000)
+4. Label `<b>...</b>` atau contains "provinsi" atau matches `domainName`
+5. Label "jumlah" atau "total" (last resort)
+
+### Fix #3: Strategic Indicators Fallback
+
+**Problem:** Inflasi dan PDRB tidak ada di KNOWN_VARS dan var_id bervariasi per domain. `get_trend` dan `compare_data` gagal.
+
+**Fix:** Jika `resolveVariable` return null, fallback ke `list_strategic_indicators`:
+- Match keyword terhadap title indikator strategis
+- Format data langsung dari `ind.data` object (key=periode, value=nilai)
+- Berlaku untuk `get_trend` dan `fetchDataForDomain` (compare_data)
+
+### Fix #4: Respect 'jumlah' Keyword
+
+**Problem:** Scoring selalu prefer "persentase" untuk kemiskinan, bahkan jika user eksplisit minta "jumlah penduduk miskin".
+
+**Fix:** Cek apakah query contains "jumlah":
+- Jika ya: boost "jumlah" (+40), penalty "persentase" (-10)
+- Jika tidak: boost "persentase" (+40) seperti sebelumnya
+
+### Fix #5: Domain Kab/Kota Fallback
+
+**Problem:** `find_data` di domain kab/kota (misal Surabaya=3578) sering return kosong karena variabel terbatas.
+
+**Fix:** Jika datacontent kosong DAN domain adalah kab/kota (4 digit, tidak berakhir "00"):
+1. Hitung parent province: `domain.slice(0,2) + "00"` (3578 → 3500)
+2. `lookupVar` atau `fullSearchVar` di parent domain
+3. Fetch data dari parent domain
+4. Return dengan note "Data diambil dari domain provinsi induk"
+
+### Fix #6: Expanded Ranking Synonyms
+
+**Problem:** `get_ranking` gagal untuk "harapan hidup", "PDRB", "pendidikan" karena tidak ada synonym mapping.
+
+**Fix:** Expanded `RANKING_SYNONYMS`:
+```
+pdrb: ["pdrb", "produk domestik", "pertumbuhan ekonomi"]
+harapan hidup: ["harapan hidup", "angka harapan hidup", "umur harapan"]
+pendidikan: ["rata-rata lama sekolah", "harapan lama sekolah", "melek huruf"]
+penduduk: ["jumlah penduduk", "populasi"]
+```
+
+Juga expanded `KEYWORD_SUBJECTS` dengan pdrb→[52], harapan→[26,30], pendidikan→[26,28].
+
+### Fix #7: Prefer Annual Over Semester
+
+**Problem:** Kemiskinan BPS dirilis per semester (Maret & September). `get_trend` bisa ambil semester random.
+
+**Fix:** Saat mapping year→period, prefer period yang label-nya exact match tahun (misal "2023") over yang mengandung tahun (misal "September 2023"). Jika sudah ada annual match, jangan overwrite dengan semester.
+
+### Fix #8: compare_data Limitation Documented
+
+**Problem:** User minta "bandingkan kemiskinan Jatim vs Jabar 2020 dan 2024" tapi tool hanya support 1 tahun.
+
+**Fix:** Tambah note di tool description: "hanya mendukung perbandingan untuk 1 tahun. Untuk perbandingan multi-tahun, gunakan get_trend per wilayah."

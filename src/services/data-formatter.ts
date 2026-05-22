@@ -121,8 +121,8 @@ export function formatDynamicData(
 
 /**
  * Try to resolve a datacontent key into labeled row.
- * BPS key format is typically concatenated numeric IDs.
- * IDs are matched longest-first to avoid partial matches of shorter IDs.
+ * BPS key format: {vervar}{var_id}{turvar}{period}{trailing}
+ * We use positional stripping: remove known var/period/turvar IDs to isolate vervar.
  */
 function resolveDatacontentKey(
   key: string,
@@ -138,12 +138,64 @@ function resolveDatacontentKey(
   turthMap: Map<string, BpsDerivedPeriod>,
   turthKeys: string[]
 ): FormattedRow | null {
-  // Match using pre-sorted (longest-first) keys for each map
-  const matchedVar = findLongestMatch(key, varMap, varKeys);
-  const matchedVervar = findLongestMatch(key, vervarMap, vervarKeys);
-  const matchedTurvar = findLongestMatch(key, turvarMap, turvarKeys);
-  const matchedPeriod = findLongestMatch(key, periodMap, periodKeys);
-  const matchedTurth = findLongestMatch(key, turthMap, turthKeys);
+  // Strategy: strip known IDs from key to isolate vervar
+  // Key format: {vervar}{var_id}{turvar?}{period}{trailing?}
+  let remaining = key;
+  let matchedVar: BpsVariable | undefined;
+  let matchedPeriod: BpsPeriod | undefined;
+  let matchedTurvar: BpsDerivedVariable | undefined;
+  let matchedVervar: BpsVerticalVariable | undefined;
+  let matchedTurth: BpsDerivedPeriod | undefined;
+
+  // 1. Find and remove var_id (usually in the middle)
+  for (const vid of varKeys) {
+    const idx = remaining.indexOf(vid);
+    if (idx > 0) { // vervar is before var_id, so idx must be > 0
+      matchedVar = varMap.get(vid);
+      const beforeVar = remaining.slice(0, idx);
+      const afterVar = remaining.slice(idx + vid.length);
+
+      // 2. Match vervar from the prefix (before var_id)
+      matchedVervar = vervarMap.get(beforeVar);
+      if (!matchedVervar) {
+        // Try longest match in prefix
+        for (const vk of vervarKeys) {
+          if (beforeVar === vk || beforeVar.endsWith(vk) || beforeVar.startsWith(vk)) {
+            matchedVervar = vervarMap.get(vk);
+            if (matchedVervar) break;
+          }
+        }
+      }
+
+      // 3. Match period and turvar from suffix (after var_id)
+      for (const pk of periodKeys) {
+        if (afterVar.includes(pk)) {
+          matchedPeriod = periodMap.get(pk);
+          break;
+        }
+      }
+      for (const tk of turvarKeys) {
+        if (afterVar.includes(tk)) {
+          matchedTurvar = turvarMap.get(tk);
+          break;
+        }
+      }
+      for (const ttk of turthKeys) {
+        if (afterVar.includes(ttk)) {
+          matchedTurth = turthMap.get(ttk);
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  // Fallback: if positional matching failed, use original substring matching
+  if (!matchedVar) matchedVar = findLongestMatch(key, varMap, varKeys);
+  if (!matchedVervar) matchedVervar = findLongestMatch(key, vervarMap, vervarKeys);
+  if (!matchedPeriod) matchedPeriod = findLongestMatch(key, periodMap, periodKeys);
+  if (!matchedTurvar) matchedTurvar = findLongestMatch(key, turvarMap, turvarKeys);
+  if (!matchedTurth) matchedTurth = findLongestMatch(key, turthMap, turthKeys);
 
   return {
     variable: matchedVar?.title ?? (matchedVar as unknown as Record<string, unknown>)?.label as string ?? "Data",

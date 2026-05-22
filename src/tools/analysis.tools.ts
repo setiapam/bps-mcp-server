@@ -23,6 +23,7 @@ export function registerAnalysisTools(
     "compare_data",
     `Bandingkan data statistik antar wilayah dalam 1 langkah.
 Gunakan tool ini ketika user ingin membandingkan data antara 2 atau lebih wilayah.
+Catatan: hanya mendukung perbandingan untuk 1 tahun. Untuk perbandingan multi-tahun, gunakan get_trend per wilayah.
 
 Contoh query user yang cocok untuk tool ini:
 - "bandingkan kemiskinan Jawa Timur dan Jawa Barat"
@@ -125,6 +126,45 @@ Contoh query user yang cocok untuk tool ini:
         // Find variable
         let varData = await resolveVariable(client, store, query, domain);
         if (!varData) {
+          // Fallback: try strategic indicators for inflasi/PDRB/etc.
+          const indicators = await client.listStrategicIndicators(domain);
+          if (indicators.data) {
+            const kw2 = normalizeKeyword(query);
+            for (const ind of indicators.data) {
+              const t = ind.title.toLowerCase();
+              if (t.includes(kw2) || kw2.split(/\s+/).some(w => w.length > 2 && t.includes(w))) {
+                if (ind.data) {
+                  const entries = Object.entries(ind.data).filter(([k]) => {
+                    const y = parseInt(k);
+                    return y >= parseInt(start_year) && y <= parseInt(end_year);
+                  });
+                  if (entries.length > 0) {
+                    const lines = [`## Tren ${ind.title}`, `**Wilayah:** ${domainName} | **Periode:** ${start_year}–${end_year}`, "", "| Tahun | Nilai | Perubahan |", "| --- | --- | --- |"];
+                    const sorted = entries.sort((a, b) => a[0].localeCompare(b[0]));
+                    for (let i = 0; i < sorted.length; i++) {
+                      const [period, val] = sorted[i];
+                      let change = "-";
+                      if (i > 0 && typeof val === "number" && typeof sorted[i-1][1] === "number") {
+                        const prev = sorted[i-1][1] as number;
+                        const pct = ((val - prev) / Math.abs(prev) * 100).toFixed(1);
+                        change = `${val > prev ? "+" : ""}${pct}%`;
+                      }
+                      lines.push(`| ${period} | ${typeof val === "number" ? val.toLocaleString("id-ID") : val} | ${change} |`);
+                    }
+                    if (sorted.length >= 2) {
+                      const first = sorted[0][1] as number;
+                      const last = sorted[sorted.length-1][1] as number;
+                      if (typeof first === "number" && typeof last === "number") {
+                        const totalChange = ((last - first) / Math.abs(first) * 100).toFixed(1);
+                        lines.push("", `**Tren:** ${last > first ? "naik" : "turun"} ${totalChange}% dari ${sorted[0][0]} ke ${sorted[sorted.length-1][0]}`);
+                      }
+                    }
+                    return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
+                  }
+                }
+              }
+            }
+          }
           return { content: [{ type: "text", text: appendAttribution(`Tidak ditemukan variabel "${query}" untuk ${domainName}.`) }] };
         }
 
@@ -153,8 +193,20 @@ Contoh query user yang cocok untuk tool ini:
           const label = String(pAny.th_name || pAny.th || pAny.label || "");
           const id = String(p.th_id ?? pAny.val);
           for (const y of years) {
-            if (label.includes(y)) yearToPeriod[y] = id;
+            if (label.includes(y)) {
+              // Prefer annual period (label is just the year) over semester (Maret/September)
+              const isAnnual = label.trim() === y;
+              const existingIsAnnual = yearToPeriod[y] ? !yearToPeriod[y + "_sem"] : false;
+              if (!yearToPeriod[y] || (isAnnual && !existingIsAnnual)) {
+                yearToPeriod[y] = id;
+                if (!isAnnual) yearToPeriod[y + "_sem"] = "1"; // marker
+              }
+            }
           }
+        }
+        // Clean up semester markers
+        for (const k of Object.keys(yearToPeriod)) {
+          if (k.endsWith("_sem")) delete yearToPeriod[k];
         }
 
         const periodIds = years.map(y => yearToPeriod[y]).filter(Boolean);
@@ -182,27 +234,49 @@ Contoh query user yang cocok untuk tool ini:
           }
         }
 
-        // Find the aggregate vervar (national = 9999, or first bold entry for provincial)
+        // Find the aggregate vervar (national = 9999, provincial = domain pattern or bold/last entry)
         let aggregateVervar: string | null = null;
         if (result.vervar) {
           for (const v of result.vervar) {
             const vAny = v as unknown as Record<string, unknown>;
             const vLabel = String(v.label_vervar ?? vAny.label ?? "");
             const vId = String(v.kode_vervar ?? vAny.val);
-            // National aggregate is typically 9999 or has bold label matching domain
             if (vId === "9999" || vLabel.toLowerCase().includes("indonesia")) {
-              aggregateVervar = vId;
-              break;
+              aggregateVervar = vId; break;
             }
           }
-          // If no national aggregate found, try bold labels (provincial aggregate)
-          if (!aggregateVervar) {
+          // For provincial domains: look for domain-based patterns
+          if (!aggregateVervar && domain !== "0000") {
+            for (const v of result.vervar) {
+              const vAny = v as unknown as Record<string, unknown>;
+              const vLabel = String(v.label_vervar ?? vAny.label ?? "");
+              const vId = String(v.kode_vervar ?? vAny.val);
+              // Pattern: domain prefix + "99" (e.g., 3599 for domain 3500)
+              if (vId === domain.slice(0, 2) + "99" || vId === domain.slice(0, 4) + "0") {
+                aggregateVervar = vId; break;
+              }
+              if (vLabel.startsWith("<b>") || vLabel.toLowerCase().includes("provinsi") || vLabel.toLowerCase().includes("jawa timur") || vLabel === domainName) {
+                aggregateVervar = vId; break;
+              }
+            }
+            // Last resort: if vervar has a "Jumlah" or last entry is typically aggregate
+            if (!aggregateVervar) {
+              for (const v of result.vervar) {
+                const vAny = v as unknown as Record<string, unknown>;
+                const vLabel = String(v.label_vervar ?? vAny.label ?? "").toLowerCase();
+                if (vLabel === "jumlah" || vLabel === "total") {
+                  aggregateVervar = String(v.kode_vervar ?? vAny.val); break;
+                }
+              }
+            }
+          }
+          // For national domain: try bold labels
+          if (!aggregateVervar && domain === "0000") {
             for (const v of result.vervar) {
               const vAny = v as unknown as Record<string, unknown>;
               const vLabel = String(v.label_vervar ?? vAny.label ?? "");
               if (vLabel.startsWith("<b>")) {
-                aggregateVervar = String(v.kode_vervar ?? vAny.val);
-                break;
+                aggregateVervar = String(v.kode_vervar ?? vAny.val); break;
               }
             }
           }
@@ -490,7 +564,27 @@ async function fetchDataForDomain(
   year: string | undefined
 ): Promise<{ value: string; varTitle: string }> {
   let varData = await resolveVariable(client, store, query, domain);
-  if (!varData) return { value: "N/A", varTitle: "" };
+  if (!varData) {
+    // Fallback: try strategic indicators (inflasi, PDRB, etc.)
+    const indicators = await client.listStrategicIndicators(domain);
+    if (indicators.data) {
+      const kw2 = normalizeKeyword(query);
+      for (const ind of indicators.data) {
+        const t = ind.title.toLowerCase();
+        if (t.includes(kw2) || kw2.split(/\s+/).some(w => w.length > 2 && t.includes(w))) {
+          if (ind.data) {
+            const entries = Object.entries(ind.data);
+            const match = year ? entries.find(([k]) => k.includes(year)) : entries[entries.length - 1];
+            if (match) {
+              const val = typeof match[1] === "number" ? match[1].toLocaleString("id-ID") : String(match[1]);
+              return { value: val, varTitle: ind.title };
+            }
+          }
+        }
+      }
+    }
+    return { value: "N/A", varTitle: "" };
+  }
 
   // Resolve period
   let periodParam: string | undefined;
@@ -654,11 +748,19 @@ async function resolveVariableForRanking(
   }
   // Add synonym expansions
   const RANKING_SYNONYMS: Record<string, string[]> = {
-    ipm: ["ipm", "pembangunan manusia"],
-    tpt: ["tpt", "pengangguran terbuka"],
-    gini: ["gini", "gini rasio"],
+    ipm: ["ipm", "pembangunan manusia", "indeks pembangunan"],
+    tpt: ["tpt", "pengangguran terbuka", "tingkat pengangguran"],
+    gini: ["gini", "gini rasio", "ketimpangan"],
+    pdrb: ["pdrb", "produk domestik", "pertumbuhan ekonomi"],
+    "harapan hidup": ["harapan hidup", "angka harapan hidup", "umur harapan"],
+    pendidikan: ["rata-rata lama sekolah", "harapan lama sekolah", "melek huruf"],
+    penduduk: ["jumlah penduduk", "populasi"],
   };
   const synonyms: string[] = RANKING_SYNONYMS[kw] || [];
+  // Also check if any synonym key is contained in the query
+  for (const [key, syns] of Object.entries(RANKING_SYNONYMS)) {
+    if (kw.includes(key) && !synonyms.length) { synonyms.push(...syns); break; }
+  }
   const matchesTitle = (t: string) =>
     roots.some(r => t.includes(r)) || synonyms.some(s => t.includes(s));
 
@@ -666,6 +768,9 @@ async function resolveVariableForRanking(
     miskin: [23], kemiskinan: [23], gini: [23],
     pengangguran: [6], tpt: [6],
     penduduk: [12], ipm: [26],
+    pdrb: [52], ekonomi: [52], pertumbuhan: [52],
+    harapan: [26, 30], pendidikan: [26, 28],
+    sekolah: [26, 28],
   };
 
   const subjectIds: number[] = [];

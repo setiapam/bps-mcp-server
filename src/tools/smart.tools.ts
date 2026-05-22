@@ -239,6 +239,23 @@ Contoh:
         const formatted = formatDynamicData(result, domain, config.defaultLang);
         const header = `**Pencarian:** "${query}" di ${domainName}${year ? ` (${year})` : ""}\n**Variabel:** ${bestVar.title} (ID: ${bestVar.var_id})\n\n`;
 
+        // Fallback for kab/kota domains: try parent province if no data
+        if ((!result.datacontent || Object.keys(result.datacontent).length === 0) &&
+            domain !== "0000" && domain.length === 4 && !domain.endsWith("00")) {
+          const parentDomain = domain.slice(0, 2) + "00";
+          const parentCandidates: Array<{ var_id: number; title: string; sub_name: string; unit?: string; score: number }> = [];
+          const parentVar = await lookupVar(query, parentDomain, store) || await fullSearchVar(client, kw, parentDomain, parentCandidates);
+          if (parentVar) {
+            const parentPeriod = await resolvePeriod(client, store, parentVar.var_id, parentDomain, year);
+            const parentResult = await client.getDynamicData(parentDomain, String(parentVar.var_id), parentPeriod);
+            if (parentResult.datacontent && Object.keys(parentResult.datacontent).length > 0) {
+              const parentFormatted = formatDynamicData(parentResult, parentDomain, config.defaultLang);
+              const parentHeader = `**Pencarian:** "${query}" di ${domainName}${year ? ` (${year})` : ""}\n**Variabel:** ${parentVar.title} (ID: ${parentVar.var_id})\n_Data diambil dari domain provinsi induk (${parentDomain})_\n\n`;
+              return { content: [{ type: "text", text: parentHeader + parentFormatted }] };
+            }
+          }
+        }
+
         // Still no data after retry
         if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
           const altLines = [
@@ -543,8 +560,14 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
 
   // Prefer "persentase" or "jumlah penduduk miskin" over "garis kemiskinan" or "indeks"
   if (query.includes("miskin") || query.includes("kemiskinan")) {
-    if (title.includes("persentase")) score += 40;
-    else if (title.includes("jumlah penduduk miskin") || title.includes("jumlah penduduk miskin")) score += 20;
+    // If user explicitly asks for "jumlah", prefer jumlah variant
+    if (query.includes("jumlah")) {
+      if (title.includes("jumlah")) score += 40;
+      if (title.includes("persentase")) score -= 10;
+    } else {
+      if (title.includes("persentase")) score += 40;
+      else if (title.includes("jumlah penduduk miskin")) score += 20;
+    }
     if (title.includes("garis kemiskinan")) score -= 30;
     if (title.includes("indeks kedalaman") || title.includes("indeks keparahan")) score -= 20;
   }
