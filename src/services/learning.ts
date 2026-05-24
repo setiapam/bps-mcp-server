@@ -61,11 +61,17 @@ const KEYWORD_ALIASES: Record<string, string> = {
   populasi: "penduduk",
   population: "penduduk",
   "jumlah penduduk": "penduduk",
+  // Agama
+  agama: "agama",
+  religi: "agama",
+  keagamaan: "agama",
+  religion: "agama",
+  "pemeluk agama": "agama",
 };
 
 // --- Noise words to strip during normalization ---
 
-const NOISE_WORDS = /\b(angka|data|statistik|berapa|tahun|terbaru|di|dan|atau|yang|untuk|dari)\b/g;
+const NOISE_WORDS = /\b(angka|data|statistik|berapa|tahun|terbaru|di|dan|atau|yang|untuk|dari|terkait|pemeluk|tentang|terhadap)\b/g;
 
 /**
  * Normalize a user query into a canonical lookup keyword.

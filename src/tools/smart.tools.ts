@@ -134,6 +134,7 @@ Gunakan tool ini sebagai langkah PERTAMA ketika user bertanya tentang data stati
 | Jumlah Penduduk | get_dynamic_data(var="1452") | 1452 |
 | PDRB | list_strategic_indicators(domain=kode_prov) | - |
 | Ekspor/Impor | list_strategic_indicators atau get_trade_data | - |
+| Agama/Religi | find_data atau list_static_tables | - |
 | Publikasi/BRS | search atau allstats_search | - |
 | Teks dalam PDF | allstats_deep_search | - |
 
@@ -194,6 +195,31 @@ Contoh:
           // Fallback: try strategic indicators
           const indResult = await tryStrategicIndicators(client, kw, domain, domainName, year);
           if (indResult) return indResult;
+
+          // Fallback: try static tables
+          try {
+            const staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            if (staticTables.data && staticTables.data.length > 0) {
+              const bestTable = staticTables.data.find(t =>
+                t.title.toLowerCase().includes(kw) ||
+                kw.split(/\s+/).some(w => w.length > 2 && t.title.toLowerCase().includes(w))
+              ) || staticTables.data[0];
+
+              const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
+              const tableLines = [
+                `**Pencarian:** "${query}" di ${domainName}`,
+                `**Sumber:** Tabel Statis — ${tableDetail.title}`,
+                "",
+                tableDetail.table,
+              ];
+              if (tableDetail.excel) {
+                tableLines.push("", `**Download Excel:** ${tableDetail.excel}`);
+              }
+              return { content: [{ type: "text", text: appendAttribution(tableLines.join("\n")) }] };
+            }
+          } catch (staticTableError) {
+            logger.debug(`find_data: static table fallback failed: ${staticTableError instanceof Error ? staticTableError.message : "unknown"}`);
+          }
 
           return {
             content: [{
@@ -256,8 +282,34 @@ Contoh:
           }
         }
 
-        // Still no data after retry
+        // Still no data after retry — try static tables as fallback
         if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
+          // Try static tables fallback
+          try {
+            const staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            if (staticTables.data && staticTables.data.length > 0) {
+              // Pick the most relevant table (first one, or search for best match)
+              const bestTable = staticTables.data.find(t =>
+                t.title.toLowerCase().includes(kw) ||
+                kw.split(/\s+/).some(w => w.length > 2 && t.title.toLowerCase().includes(w))
+              ) || staticTables.data[0];
+
+              const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
+              const tableLines = [
+                `**Pencarian:** "${query}" di ${domainName}`,
+                `**Sumber:** Tabel Statis — ${tableDetail.title}`,
+                "",
+                tableDetail.table,
+              ];
+              if (tableDetail.excel) {
+                tableLines.push("", `**Download Excel:** ${tableDetail.excel}`);
+              }
+              return { content: [{ type: "text", text: appendAttribution(tableLines.join("\n")) }] };
+            }
+          } catch (staticTableError) {
+            logger.debug(`find_data: static table fallback failed: ${staticTableError instanceof Error ? staticTableError.message : "unknown"}`);
+          }
+
           const altLines = [
             `Data untuk variabel "${bestVar.title}" tidak tersedia${year ? ` untuk tahun ${year}` : ""} di ${domainName}.`,
             "",
@@ -299,6 +351,7 @@ const KEYWORD_SUBJECTS: Record<string, number[]> = {
   kesehatan: [30],
   pendidikan: [28],
   pariwisata: [16],
+  agama: [12], religi: [12], keagamaan: [12],
 };
 
 function getSubjectIdsForKeyword(kw: string): number[] {
@@ -570,6 +623,13 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
     }
     if (title.includes("garis kemiskinan")) score -= 30;
     if (title.includes("indeks kedalaman") || title.includes("indeks keparahan")) score -= 20;
+  }
+
+  // Prefer "jumlah penduduk menurut agama" for religion queries
+  if (query.includes("agama") || query.includes("religi")) {
+    if (title.includes("jumlah") || title.includes("penduduk")) score += 30;
+    if (title.includes("menurut agama")) score += 50;
+    if (title.includes("kepercayaan")) score += 10;
   }
 
   return score;
