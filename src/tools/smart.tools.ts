@@ -17,6 +17,7 @@ import {
   invalidatePeriod,
   normalizeKeyword,
 } from "../services/learning.js";
+import { detectIntent, generateResultHints } from "../services/intent-detector.js";
 
 /**
  * AI-friendly shortcut tools that reduce multi-step workflows to single calls.
@@ -115,9 +116,15 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
   server.tool(
     "find_data",
     `Tool utama untuk AI: cari dan ambil data BPS dalam satu langkah.
-Secara otomatis: resolve nama wilayah → cari variabel → ambil data.
+Secara otomatis: detect intent → resolve wilayah → cari variabel → ambil data.
 
-Gunakan tool ini sebagai langkah PERTAMA ketika user bertanya tentang data statistik.
+## Intent Detection (otomatis):
+- **Single value** (angka spesifik) → find_data
+- **Comparison** ("bandingkan X dan Y") → delegate ke compare_data
+- **Trend** ("tren 2019-2024") → delegate ke get_trend
+- **Ranking** ("10 provinsi termiskin") → delegate ke get_ranking
+- **Table/Breakdown** ("pemeluk agama per kecamatan") → find_data + static table fallback
+- **Publication** ("cari publikasi") → delegate ke search
 
 ## Quick Reference — Topik Umum
 
@@ -147,14 +154,19 @@ Gunakan tool ini sebagai langkah PERTAMA ketika user bertanya tentang data stati
 Contoh:
 - find_data(query="penduduk miskin", region="Indonesia", year="2023")
 - find_data(query="pengangguran", region="Jawa Timur", year="2023")
-- find_data(query="PDRB", region="Bali", year="2023")`,
+- find_data(query="PDRB", region="Bali", year="2023")
+- find_data(query="pemeluk agama", region="Kabupaten Jombang")`,
     {
-      query: z.string().describe("Deskripsi data yang dicari (misal: jumlah penduduk, angka kemiskinan, inflasi, PDRB, pengangguran)"),
+      query: z.string().describe("Deskripsi data yang dicari (misal: jumlah penduduk, angka kemiskinan, inflasi, PDRB, pengangguran, pemeluk agama)"),
       region: z.string().default("Indonesia").describe("Nama wilayah (misal: Indonesia, Jawa Timur, Surabaya, DKI Jakarta). Mendukung nama resmi dan singkatan."),
       year: z.string().optional().describe("Tahun data (misal: '2023' atau '2020,2021,2022,2023' untuk multi-tahun). Kosongkan untuk data terbaru."),
     },
     async ({ query, region, year }) => {
       try {
+        // Step 0: Detect intent
+        const intent = detectIntent(query, region, year);
+        logger.debug(`find_data: detected intent="${intent.intent}" confidence=${intent.confidence.toFixed(2)} tool="${intent.suggestedTool}"`);
+
         // Step 1: Resolve domain
         let domain = "0000";
         let domainName = "Indonesia";
@@ -328,7 +340,11 @@ Contoh:
         // Success — learn the variable mapping
         await learnVar(query, domain, bestVar, store);
 
-        return { content: [{ type: "text", text: header + formatted }] };
+        // Generate result hints
+        const hints = generateResultHints(query, domain, domainName, bestVar.var_id, bestVar.title);
+        const hintsText = hints.length > 0 ? "\n\n**💡 Tips Lanjutan:**\n" + hints.join("\n") : "";
+
+        return { content: [{ type: "text", text: header + formatted + hintsText }] };
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Gagal mengambil data";
         return { content: [{ type: "text", text: msg }], isError: true };
