@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/setiapam/bps-mcp-server/compare/v0.13.2...v0.14.0) (2026-05-24)
+
+
+### Features
+
+* add agama/religion topic support with static table fallback ([5364481](https://github.com/setiapam/bps-mcp-server/commit/5364481197d7da0c696eb3bb50410f7df8bcc938))
+
 ## [0.13.2](https://github.com/setiapam/bps-mcp-server/compare/v0.13.1...v0.13.2) (2026-05-22)
 
 
