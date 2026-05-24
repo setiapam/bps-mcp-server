@@ -256,6 +256,24 @@ Contoh:
               }
               return { content: [{ type: "text", text: appendAttribution(tableLines.join("\n")) }] };
             }
+
+            // Static tables empty — suggest AllStats search with optimized query
+            const allStatsQuery = `jumlah penduduk menurut agama ${domainName}`;
+            return {
+              content: [{
+                type: "text",
+                text: appendAttribution(
+                  `**Pencarian:** "${query}" di ${domainName}\n\n` +
+                  `Data untuk topik ini tidak tersedia sebagai dynamic data atau static table di BPS WebAPI.\n` +
+                  `Data kemungkinan tersedia di website BPS daerah atau publikasi.\n\n` +
+                  `**Langkah selanjutnya yang disarankan:**\n` +
+                  `1. Gunakan \`allstats_search(query="${allStatsQuery}", domain="${domain}", content="table")\` untuk mencari di AllStats Search Engine\n` +
+                  `2. Gunakan \`allstats_deep_search(query="${allStatsQuery}", domain="${domain}")\` untuk mencari di dalam PDF publikasi\n` +
+                  `3. Cek langsung website BPS daerah (format URL bervariasi per wilayah)\n\n` +
+                  `**Catatan:** Beberapa data (seperti agama) hanya tersedia di website BPS daerah, tidak di WebAPI.`
+                ),
+              }],
+            };
           } catch (staticTableError) {
             logger.debug(`find_data: static table fallback failed: ${staticTableError instanceof Error ? staticTableError.message : "unknown"}`);
           }
