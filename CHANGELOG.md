@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/setiapam/bps-mcp-server/compare/v0.15.0...v0.15.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* expand static table fallback with multi-keyword and parent domain strategies ([8dffb5e](https://github.com/setiapam/bps-mcp-server/commit/8dffb5edbcae47c710aac1a583c5595e9af0aeb5))
+
 ## [0.15.0](https://github.com/setiapam/bps-mcp-server/compare/v0.14.0...v0.15.0) (2026-05-24)
 
 
