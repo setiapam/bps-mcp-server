@@ -178,8 +178,8 @@ export function generateResultHints(
   query: string,
   domain: string,
   domainName: string,
-  varId?: number,
-  varTitle?: string
+  _varId?: number,
+  _varTitle?: string
 ): string[] {
   const hints: string[] = [];
   const kw = query.toLowerCase();
