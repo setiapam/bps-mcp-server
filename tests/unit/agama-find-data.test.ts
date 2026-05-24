@@ -111,6 +111,23 @@ describe("find_data agama flow", () => {
     expect(text).toContain("Kabupaten Jombang");
   });
 
+  it("should fallback to static table for 'penduduk menurut agama' query (not jenis kelamin)", async () => {
+    const tool = (server as any)._registeredTools?.find_data;
+    expect(tool).toBeDefined();
+
+    const result = await tool.handler({
+      query: "penduduk menurut agama",
+      region: "kab jombang",
+    });
+
+    const text = result.content[0].text;
+    // Should NOT return "Jenis Kelamin" data
+    expect(text).not.toContain("Jenis Kelamin");
+    // Should fallback to static table with agama data
+    expect(text).toContain("Tabel Statis");
+    expect(text).toContain("AGAMA");
+  });
+
   it("should resolve domain correctly for kab jombang", async () => {
     const resolved = await mockResolver.resolve("kab jombang");
     expect(resolved).toEqual({ domainId: "3517", domainName: "Kabupaten Jombang" });

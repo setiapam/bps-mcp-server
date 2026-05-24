@@ -71,7 +71,7 @@ const KEYWORD_ALIASES: Record<string, string> = {
 
 // --- Noise words to strip during normalization ---
 
-const NOISE_WORDS = /\b(angka|data|statistik|berapa|tahun|terbaru|di|dan|atau|yang|untuk|dari|terkait|pemeluk|tentang|terhadap)\b/g;
+const NOISE_WORDS = /\b(angka|data|statistik|berapa|tahun|terbaru|di|dan|atau|yang|untuk|dari|terkait|pemeluk|tentang|terhadap|menurut|berdasarkan)\b/g;
 
 /**
  * Normalize a user query into a canonical lookup keyword.
@@ -86,7 +86,7 @@ export function normalizeKeyword(query: string): string {
 
 /**
  * Resolve canonical key from a normalized keyword.
- * Checks alias table, then tries substring match against alias keys.
+ * Prefers the last matching keyword (e.g., "penduduk agama" → "agama").
  */
 function resolveCanonical(normalized: string): string {
   // Direct alias match
@@ -95,17 +95,48 @@ function resolveCanonical(normalized: string): string {
   // Check if normalized IS a canonical key
   if (KNOWN_VARS[normalized]) return normalized;
 
-  // Substring: alias key contained in normalized, or vice versa
+  // Collect all matching canonical keys, prefer last match (more specific topic)
+  let lastMatch: string | null = null;
+  let lastPos = -1;
+
+  // Check alias keys
   for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
-    if (normalized.includes(alias) || alias.includes(normalized)) return canonical;
+    const pos = normalized.indexOf(alias);
+    if (pos >= 0 && pos > lastPos) {
+      lastMatch = canonical;
+      lastPos = pos;
+    }
   }
 
-  // Check KNOWN_VARS keys as substring
+  // Check KNOWN_VARS keys
   for (const key of Object.keys(KNOWN_VARS)) {
-    if (normalized.includes(key) || key.includes(normalized)) return key;
+    const pos = normalized.indexOf(key);
+    if (pos >= 0 && pos > lastPos) {
+      lastMatch = key;
+      lastPos = pos;
+    }
   }
 
-  return normalized;
+  // Also check word-level: split normalized and check each word
+  const words = normalized.split(/\s+/);
+  for (let i = words.length - 1; i >= 0; i--) {
+    const word = words[i];
+    if (KEYWORD_ALIASES[word]) {
+      return KEYWORD_ALIASES[word];
+    }
+    if (KNOWN_VARS[word]) {
+      return word;
+    }
+    // Substring check for individual words
+    for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
+      if (alias.includes(word) || word.includes(alias)) return canonical;
+    }
+    for (const key of Object.keys(KNOWN_VARS)) {
+      if (key.includes(word) || word.includes(key)) return key;
+    }
+  }
+
+  return lastMatch || normalized;
 }
 
 /**

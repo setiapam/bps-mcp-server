@@ -34,5 +34,17 @@ describe("Agama keyword optimization", () => {
       expect(result).toContain("agama");
       expect(result).toContain("jombang");
     });
+
+    it("should strip 'menurut' from queries like 'penduduk menurut agama'", () => {
+      const result = normalizeKeyword("penduduk menurut agama");
+      expect(result).toBe("penduduk agama");
+      expect(result).not.toContain("menurut");
+    });
+
+    it("should strip 'berdasarkan' from queries", () => {
+      const result = normalizeKeyword("penduduk berdasarkan agama");
+      expect(result).toBe("penduduk agama");
+      expect(result).not.toContain("berdasarkan");
+    });
   });
 });
