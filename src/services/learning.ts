@@ -1,5 +1,6 @@
 import type { IPersistentStore } from "./persistent-store.js";
 import { logger } from "../utils/logger.js";
+import stopwords from "stopwords-iso";
 
 /** Learned variable entry stored in persistent store. */
 export interface LearnedVar {
@@ -69,17 +70,41 @@ const KEYWORD_ALIASES: Record<string, string> = {
   "pemeluk agama": "agama",
 };
 
-// --- Noise words to strip during normalization ---
+// --- Noise words: stopwords-iso (ID + EN) + BPS domain-specific terms ---
 
-const NOISE_WORDS = /\b(angka|data|statistik|berapa|tahun|terbaru|di|dan|atau|yang|untuk|dari|terkait|pemeluk|tentang|terhadap|menurut|berdasarkan)\b/g;
+const BPS_SPECIFIC_NOISE = [
+  "angka", "data", "statistik", "berapa", "terbaru",
+  "terkait", "pemeluk", "tentang", "terhadap",
+  "menurut", "berdasarkan", "terdiri", "atas",
+  "secara", "yaitu", "yakni", "bahwa", "juga",
+  "sudah", "telah", "masih", "lagi", "saja",
+  "sangat", "cukup", "hanya", "selain", "sebagai",
+  "seperti", "misalnya", "contoh", "lain", "lainnya",
+  "total", "keseluruhan", "seluruh", "semua",
+  "berapa", "berapaan", "tentang", "soal",
+  "kabupaten", "kota", "provinsi", "kecamatan",
+  "kab", "kec", "prov",
+];
+
+const ALL_STOPWORDS = new Set([
+  ...(stopwords.id || []),
+  ...(stopwords.en || []),
+  ...BPS_SPECIFIC_NOISE,
+]);
+
+const NOISE_PATTERN = new RegExp(
+  `\\b(${Array.from(ALL_STOPWORDS).sort((a, b) => b.length - a.length).join("|")})\\b`,
+  "gi"
+);
 
 /**
  * Normalize a user query into a canonical lookup keyword.
+ * Uses stopwords-iso for comprehensive noise removal.
  */
 export function normalizeKeyword(query: string): string {
   return query
     .toLowerCase()
-    .replace(NOISE_WORDS, "")
+    .replace(NOISE_PATTERN, "")
     .replace(/\s+/g, " ")
     .trim();
 }
