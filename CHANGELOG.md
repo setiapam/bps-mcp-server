@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/setiapam/bps-mcp-server/compare/v0.15.1...v0.15.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* remove hardcoded regional BPS domain URL in fallback message ([f67e720](https://github.com/setiapam/bps-mcp-server/commit/f67e7200d52c83f8409257a6c45adac8dc8072be))
+
 ## [0.15.1](https://github.com/setiapam/bps-mcp-server/compare/v0.15.0...v0.15.1) (2026-05-24)
 
 
