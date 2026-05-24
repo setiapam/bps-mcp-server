@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0](https://github.com/setiapam/bps-mcp-server/compare/v0.14.0...v0.15.0) (2026-05-24)
+
+
+### Features
+
+* add intent detection and result hints for smarter query routing ([6632d28](https://github.com/setiapam/bps-mcp-server/commit/6632d28a8d4fe7890e5bacea4f1cc339ff7c03f1))
+* integrate stopwords-iso for comprehensive noise word removal ([81e16c0](https://github.com/setiapam/bps-mcp-server/commit/81e16c0b27a6eca13e05cdf31473d8411e648850))
+
+
+### Bug Fixes
+
+* prefix unused params with underscore to satisfy lint rule ([eaae6bb](https://github.com/setiapam/bps-mcp-server/commit/eaae6bb176c77cd5c3cb29b24d7ec33cb4129359))
+* resolveCanonical prefers last keyword match to avoid wrong variable selection ([71e317e](https://github.com/setiapam/bps-mcp-server/commit/71e317e48843dca9fd6c2b38a3d818c99d29f5ab))
+
 ## [0.14.0](https://github.com/setiapam/bps-mcp-server/compare/v0.13.2...v0.14.0) (2026-05-24)
 
 
