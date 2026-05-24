@@ -208,14 +208,41 @@ Contoh:
           const indResult = await tryStrategicIndicators(client, kw, domain, domainName, year);
           if (indResult) return indResult;
 
-          // Fallback: try static tables
+          // Fallback: try static tables with multiple keyword strategies
           try {
-            const staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            // Strategy 1: Try with normalized keyword
+            let staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+
+            // Strategy 2: If empty and keyword is short, try broader keywords
+            if ((!staticTables.data || staticTables.data.length === 0) && kw.split(/\s+/).length <= 2) {
+              // Try "penduduk" as broader keyword (covers "penduduk menurut agama", etc.)
+              if (kw !== "penduduk") {
+                staticTables = await client.listStaticTables(domain, "penduduk", undefined, undefined, 1);
+              }
+            }
+
+            // Strategy 3: If still empty, try without keyword filter
+            if ((!staticTables.data || staticTables.data.length === 0)) {
+              staticTables = await client.listStaticTables(domain, undefined, undefined, undefined, 1);
+            }
+
+            // Strategy 4: If kab/kota and still empty, try parent province
+            if ((!staticTables.data || staticTables.data.length === 0) &&
+                domain.length === 4 && !domain.endsWith("00")) {
+              const parentDomain = domain.slice(0, 2) + "00";
+              staticTables = await client.listStaticTables(parentDomain, kw, undefined, undefined, 1);
+              if (!staticTables.data || staticTables.data.length === 0) {
+                staticTables = await client.listStaticTables(parentDomain, "penduduk", undefined, undefined, 1);
+              }
+            }
+
             if (staticTables.data && staticTables.data.length > 0) {
-              const bestTable = staticTables.data.find(t =>
-                t.title.toLowerCase().includes(kw) ||
-                kw.split(/\s+/).some(w => w.length > 2 && t.title.toLowerCase().includes(w))
-              ) || staticTables.data[0];
+              // Find best matching table
+              const searchTerms = [kw, "penduduk", ...kw.split(/\s+/).filter(w => w.length > 2)];
+              const bestTable = staticTables.data.find(t => {
+                const titleLower = t.title.toLowerCase();
+                return searchTerms.some(term => titleLower.includes(term));
+              }) || staticTables.data[0];
 
               const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
               const tableLines = [
@@ -296,15 +323,36 @@ Contoh:
 
         // Still no data after retry — try static tables as fallback
         if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
-          // Try static tables fallback
+          // Try static tables fallback with multiple strategies
           try {
-            const staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            let staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+
+            // Strategy 2: If empty, try broader keyword "penduduk"
+            if ((!staticTables.data || staticTables.data.length === 0) && kw !== "penduduk") {
+              staticTables = await client.listStaticTables(domain, "penduduk", undefined, undefined, 1);
+            }
+
+            // Strategy 3: If still empty, try without keyword
+            if ((!staticTables.data || staticTables.data.length === 0)) {
+              staticTables = await client.listStaticTables(domain, undefined, undefined, undefined, 1);
+            }
+
+            // Strategy 4: If kab/kota, try parent province
+            if ((!staticTables.data || staticTables.data.length === 0) &&
+                domain.length === 4 && !domain.endsWith("00")) {
+              const parentDomain = domain.slice(0, 2) + "00";
+              staticTables = await client.listStaticTables(parentDomain, kw, undefined, undefined, 1);
+              if (!staticTables.data || staticTables.data.length === 0) {
+                staticTables = await client.listStaticTables(parentDomain, "penduduk", undefined, undefined, 1);
+              }
+            }
+
             if (staticTables.data && staticTables.data.length > 0) {
-              // Pick the most relevant table (first one, or search for best match)
-              const bestTable = staticTables.data.find(t =>
-                t.title.toLowerCase().includes(kw) ||
-                kw.split(/\s+/).some(w => w.length > 2 && t.title.toLowerCase().includes(w))
-              ) || staticTables.data[0];
+              const searchTerms = [kw, "penduduk", ...kw.split(/\s+/).filter(w => w.length > 2)];
+              const bestTable = staticTables.data.find(t => {
+                const titleLower = t.title.toLowerCase();
+                return searchTerms.some(term => titleLower.includes(term));
+              }) || staticTables.data[0];
 
               const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
               const tableLines = [
