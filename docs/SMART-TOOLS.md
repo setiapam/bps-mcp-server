@@ -32,14 +32,33 @@ Menggabungkan 5-9 langkah API menjadi 1 tool call: resolve wilayah → cari vari
 ### Flow Detail
 
 ```
+┌─ Step 0: Intent Detection ───────────────────────────────────┐
+│ detectIntent(query, region, year)                             │
+│                                                               │
+│ Pattern matching untuk 6 intent:                             │
+│ - single_value: default                                      │
+│ - comparison: "bandingkan", "vs", "antara X dan Y"           │
+│ - trend: "tren", "2019-2024", "dari...sampai"                │
+│ - ranking: "peringkat", "10 provinsi termiskin"              │
+│ - table: "pemeluk agama", "per kecamatan", "distribusi"      │
+│ - publication: "publikasi", "BRS", "cari teks di dalam"      │
+│                                                               │
+│ Auto-extract params:                                         │
+│ - Year range: "2019-2024" → {year: "2019,2024"}             │
+│ - Comparison: "antara jatim dan jabar" → {region1, region2}  │
+│                                                               │
+│ Output: {intent, confidence, suggestedTool, hints}           │
+└───────────────────────────────────────────────────────────────┘
+          │
+          ▼
 ┌─ Step 1: Resolve Domain ─────────────────────────────────────┐
 │ Input: region="Jawa Timur"                                    │
 │ → DomainResolver.resolve("Jawa Timur")                        │
 │ → Fuzzy match (Levenshtein + alias: "Jatim"→"Jawa Timur")    │
 │ → Output: domain="3500", domainName="Jawa Timur"             │
 └───────────────────────────────────────────────────────────────┘
-         │
-         ▼
+          │
+          ▼
 ┌─ Step 2: Find Variable (3-Layer Lookup) ─────────────────────┐
 │                                                               │
 │ Layer 1: KNOWN_VARS (hardcoded, 0 I/O)                       │
@@ -58,12 +77,17 @@ Menggabungkan 5-9 langkah API menjadi 1 tool call: resolve wilayah → cari vari
 │   → Sort by score, return best                               │
 │   → learnVar() → simpan ke store untuk next time             │
 │                                                               │
-│ Fallback: Strategic Indicators                                │
+│ Fallback 1: Strategic Indicators                              │
 │   Jika Layer 1-3 gagal → cek list_strategic_indicators       │
 │   Match keyword terhadap title indikator strategis            │
+│                                                               │
+│ Fallback 2: Static Tables                                    │
+│   Jika Strategic Indicators gagal → list_static_tables(kw)   │
+│   Pick best match → get_static_table() → return HTML table   │
+│   (Ini yang menangani query seperti "pemeluk agama")         │
 └───────────────────────────────────────────────────────────────┘
-         │
-         ▼
+          │
+          ▼
 ┌─ Step 3: Resolve Period ─────────────────────────────────────┐
 │ Input: var_id=184, domain="3500", year="2023"                │
 │                                                               │
@@ -77,8 +101,8 @@ Menggabungkan 5-9 langkah API menjadi 1 tool call: resolve wilayah → cari vari
 │                                                               │
 │ 3. Tanpa year: ambil periods[0] (terbaru)                    │
 └───────────────────────────────────────────────────────────────┘
-         │
-         ▼
+          │
+          ▼
 ┌─ Step 4: Get Data ───────────────────────────────────────────┐
 │ getDynamicData("3500", "184", "123")                         │
 │                                                               │
@@ -87,14 +111,31 @@ Menggabungkan 5-9 langkah API menjadi 1 tool call: resolve wilayah → cari vari
 │   → invalidateVar("miskin", "3500")                          │
 │   → invalidatePeriod(184, "3500", "2023")                    │
 │   → Retry: fullSearchVar() → resolvePeriod() → getData()    │
+│                                                               │
+│ Fallback untuk kab/kota (4 digit, tidak berakhir "00"):      │
+│   → Hitung parent: domain.slice(0,2)+"00" (3517→3500)       │
+│   → lookupVar/fullSearchVar di parent domain                 │
+│   → Fetch data dari parent domain                            │
+│   → Return dengan note "Data dari provinsi induk"            │
+│                                                               │
+│ Fallback static table (jika dynamic data tetap kosong):      │
+│   → list_static_tables(domain, kw)                           │
+│   → Pick best match → get_static_table() → return            │
 └───────────────────────────────────────────────────────────────┘
-         │
-         ▼
+          │
+          ▼
 ┌─ Step 5: Format & Return ────────────────────────────────────┐
 │ formatDynamicData(result, domain, lang)                       │
 │ → Decode datacontent keys (vervar+var+turvar+period)         │
 │ → Build readable table                                       │
 │ → Append BPS attribution                                     │
+│ → Generate result hints (generateResultHints)                │
+│                                                               │
+│ Result Hints:                                                │
+│ - Untuk kab/kota: "💡 Data provinsi: find_data(...)"         │
+│ - Untuk agama: "💡 Breakdown: list_static_tables(...)"       │
+│ - Untuk miskin: "💡 Gini rasio: get_dynamic_data(var="98")"  │
+│ - Untuk pengangguran: "💡 TPak: find_variable(...)"          │
 │                                                               │
 │ Success → learnVar() (simpan mapping untuk next time)        │
 └───────────────────────────────────────────────────────────────┘
@@ -114,6 +155,13 @@ Ketika full search menemukan banyak variabel, scoring menentukan mana yang palin
 +15   title pendek (<60 char, lebih general)
 -15   title punya >1 "menurut" (breakdown, kurang berguna)
 -20   title panjang (>100 char, terlalu spesifik)
+
+Heuristik khusus:
++40   query="miskin" + title="persentase" (prefer persentase)
++40   query="jumlah miskin" + title="jumlah" (respect "jumlah" keyword)
++50   query="agama" + title="menurut agama" (prefer agama breakdown)
++30   query="agama" + title="jumlah"/"penduduk"
++60   query minta kab/kota + title mengandung "kabupaten"
 ```
 
 ### HTTP Calls Summary
@@ -624,17 +672,20 @@ Self-healing chain:
 
 ### `normalizeKeyword(query)` (dari `learning.ts`)
 
-```typescript
-"berapa angka kemiskinan" → "kemiskinan"
-"data pengangguran terbuka" → "pengangguran terbuka"
-"jumlah penduduk miskin" → "penduduk miskin"
+Menggunakan **stopwords-iso** untuk comprehensive noise removal:
+- 758 Indonesian stopwords + 1298 English stopwords
+- BPS-specific noise: `menurut`, `berdasarkan`, `pemeluk`, `terkait`, dll
 
-Noise words yang dihapus:
-  angka, data, statistik, berapa, tahun, terbaru,
-  di, dan, atau, yang, untuk, dari
+```typescript
+"berapa statistik terkait pemeluk agama di kab jombang" → "agama jombang"
+"penduduk menurut agama" → "penduduk agama"
+"angka kemiskinan terbaru di indonesia" → "kemiskinan indonesia"
+"what is the population of jakarta" → "population jakarta"
 ```
 
 ### `resolveCanonical(normalized)` (dari `learning.ts`)
+
+Prefer **last matching keyword** (lebih spesifik):
 
 ```typescript
 KEYWORD_ALIASES:
@@ -645,9 +696,72 @@ KEYWORD_ALIASES:
   "hdi" → "ipm"
   "ketimpangan" → "gini"
   "populasi" → "penduduk"
+  "agama" → "agama"
+  "religi" → "agama"
+  "pemeluk agama" → "agama"
 
-Juga cek substring match:
-  "penduduk miskin di jawa" contains "penduduk miskin" → "miskin"
+Word-level fallback (check dari belakang):
+  "penduduk agama" → check "agama" dulu → KEYWORD_ALIASES["agama"] → "agama"
+  (bukan "penduduk" yang menang, karena "agama" lebih spesifik)
+```
+
+---
+
+## Intent Detection (`src/services/intent-detector.ts`)
+
+### Tujuan
+
+Mendeteksi intent user dari natural language query dan suggest tool terbaik + extract params.
+
+### 6 Intent Types
+
+| Intent | Pattern | Suggested Tool |
+|--------|---------|----------------|
+| `single_value` | Default (angka spesifik) | `find_data` |
+| `comparison` | "bandingkan", "vs", "antara X dan Y" | `compare_data` |
+| `trend` | "tren", "2019-2024", "dari...sampai" | `get_trend` |
+| `ranking` | "peringkat", "10 provinsi termiskin" | `get_ranking` |
+| `table` | "pemeluk agama", "per kecamatan", "distribusi" | `find_data` (static table fallback) |
+| `publication` | "publikasi", "BRS", "cari teks di dalam" | `search` |
+
+### Auto-Extract Params
+
+```typescript
+// Year range extraction
+"pengangguran 2019-2024" → {year: "2019,2024"}
+
+// Comparison region extraction
+"antara jawa timur dan jawa barat" → {region1: "jawa timur", region2: "jawa barat"}
+```
+
+### Confidence Scoring
+
+Pattern matching dengan scoring:
+- Match pattern → +30 per pattern
+- Multiple regions in query → +20
+- Year range in params → +20
+- Confidence = min(score / 50, 1)
+
+### Result Hints (`generateResultHints`)
+
+Generate actionable next-step suggestions berdasarkan query context:
+
+```typescript
+// Untuk kab/kota domain
+"💡 Data provinsi: find_data(query="...", region="provinsi") [domain: 3500]"
+
+// Untuk agama query
+"💡 Breakdown detail: list_static_tables(domain="3517", keyword="agama")"
+
+// Untuk kemiskinan
+"💡 Gini rasio: get_dynamic_data(domain="0000", var="98")"
+"💡 Garis kemiskinan: find_variable(keyword="garis kemiskinan")"
+
+// Untuk pengangguran
+"💡 TPak: find_variable(keyword="tpak", domain="...")"
+
+// Untuk IPM
+"💡 Data historis: get_trend(query="ipm", region="...")"
 ```
 
 ---

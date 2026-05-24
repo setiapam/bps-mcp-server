@@ -9,13 +9,18 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 ## Fitur
 
 - **39 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search + AI-friendly shortcuts
-- **AI-friendly** — tool `find_data` memungkinkan AI mendapat data dalam 1 langkah (tanpa perlu navigasi hierarki BPS)
+- **AI-friendly** — tool `find_data` dengan intent detection otomatis (resolve wilayah → detect intent → cari variabel → ambil data)
+- **Intent Detection** — otomatis detect: single value, comparison, trend, ranking, table/breakdown, publication
+- **Stopwords-ISO** — noise removal otomatis untuk 758 kata Indonesia + 1298 kata Inggris
+- **Static Table Fallback** — `find_data` otomatis fallback ke tabel statis jika dynamic data tidak tersedia (misal: data agama)
+- **Result Hints** — setiap response include tips lanjutan yang actionable
 - **Integrasi AllStats Search** — pencarian unified + full-text PDF search (tanpa API key)
 - **Smart fallback** — WebAPI search otomatis fallback ke AllStats jika tidak ada hasil
 - **3 MCP Resources** — domain list, kabupaten per provinsi, subjek per domain
 - **5 MCP Prompts** — template analisis data siap pakai
 - **Domain resolver** dengan fuzzy matching (ketik "Jatim" → Jawa Timur)
 - **Data formatter** yang mengubah raw BPS data menjadi format mudah dibaca
+- **Persistent learning store** — auto-learn variable mappings, survive restart
 - **In-memory cache** dengan TTL per tipe data
 - **Rate limiting** — 60 req/menit per API key (remote worker)
 - **Bilingual** — error messages dan response mendukung bahasa Indonesia dan Inggris
@@ -229,11 +234,14 @@ User: "Berapa angka kemiskinan Indonesia 2023?"
 AI menggunakan: find_data(query="penduduk miskin", region="Indonesia", year="2023")
 
 Proses internal (otomatis):
+0. Intent Detection: "single_value" → find_data
 1. Resolve "Indonesia" → domain 0000
-2. Cari subjek relevan → "Kemiskinan dan Ketimpangan"
-3. Cari variabel → "Jumlah Penduduk Miskin" (var_id: 183)
-4. Resolve "2023" → period ID 123
-5. Ambil data → 25,9 juta jiwa
+2. Normalize: "berapa angka kemiskinan" → "kemiskinan" (stopwords-iso)
+3. Cari subjek relevan → "Kemiskinan dan Ketimpangan"
+4. Cari variabel → "Jumlah Penduduk Miskin" (var_id: 183)
+5. Resolve "2023" → period ID 123
+6. Ambil data → 25,9 juta jiwa
+7. Result hints: "💡 Gini rasio: get_dynamic_data(var="98")"
 
 Jika find_data gagal, AI bisa:
 - find_variable(keyword="miskin") → lihat variabel yang tersedia
@@ -248,6 +256,12 @@ AI menggunakan: get_trend(query="pengangguran", region="Indonesia", start_year="
 
 User: "10 provinsi termiskin"
 AI menggunakan: get_ranking(query="kemiskinan", top_n=10, order="highest")
+
+User: "Statistik pemeluk agama di Kab Jombang"
+AI menggunakan: find_data(query="pemeluk agama", region="Kab Jombang")
+→ Intent: "table" → find_data dengan static table fallback
+→ Otomatis ambil tabel statis "Jumlah Penduduk Menurut Agama"
+→ Result hints: "💡 Breakdown detail: list_static_tables(keyword="agama")"
 ```
 
 ## Contoh Query
@@ -264,6 +278,8 @@ AI menggunakan: get_ranking(query="kemiskinan", top_n=10, order="highest")
 "Cari teks tentang akses internet di dalam publikasi BPS"
 "Berapa IPM Jawa Timur?"
 "Pertumbuhan ekonomi Indonesia triwulan terakhir"
+"Statistik pemeluk agama di Kabupaten Klaten"
+"Distribusi penduduk per kecamatan di Jakarta"
 ```
 
 ## Resources (3)
@@ -310,7 +326,7 @@ npm install
 
 ```bash
 npm run build          # Compile TypeScript
-npm run test:unit      # Run unit tests (76 tests)
+npm run test:unit      # Run unit tests (105+ tests)
 npm run lint           # ESLint check
 npm run typecheck      # TypeScript type check
 ```
@@ -376,8 +392,12 @@ src/
 ├── prompts/        # MCP prompt templates
 ├── resources/      # MCP resources (domain lists)
 ├── services/       # Cache, domain resolver, data formatter
+│   ├── intent-detector.ts   # Intent detection (comparison, trend, ranking, table)
+│   ├── learning.ts          # Persistent learning store + stopwords-iso
+│   ├── domain-resolver.ts   # Fuzzy domain matching
+│   └── data-formatter.ts    # Format BPS data to markdown
 ├── tools/          # MCP tool definitions (39 tools)
-│   ├── smart.tools.ts      # find_data, find_variable (AI shortcuts)
+│   ├── smart.tools.ts      # find_data, find_variable (AI shortcuts + intent detection)
 │   ├── analysis.tools.ts   # compare_data, get_trend, get_ranking
 │   ├── dynamic-data.tools.ts  # Core data tools
 │   ├── search.tools.ts     # Search with AllStats fallback

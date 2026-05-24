@@ -151,6 +151,7 @@ const KNOWN_VARS: Record<string, { var_id: number; label: string }[]> = {
   // Kependudukan
   penduduk:      [{ var_id: 1452, label: "Jumlah Penduduk" }],
 
+  // Agama — tidak ada var_id stabil, gunakan static table fallback
   // Inflasi — tidak ada var_id stabil, gunakan strategic indicators
   // PDRB — bervariasi per domain, gunakan strategic indicators
 };
@@ -234,22 +235,32 @@ Ini menangani kasus var_id berubah — otomatis self-correct tanpa manual interv
 
 ## Keyword Normalization
 
-Untuk meningkatkan hit rate, normalize query sebelum lookup:
+Untuk meningkatkan hit rate, normalize query sebelum lookup menggunakan **stopwords-iso**:
 
 ```typescript
-function normalizeKeyword(query: string): string {
-  return query
-    .toLowerCase()
-    .replace(/\b(angka|data|statistik|jumlah|tingkat|berapa)\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// stopwords-iso: 758 Indonesian + 1298 English stopwords
+// Plus BPS-specific noise words
+const ALL_STOPWORDS = new Set([
+  ...stopwords.id,  // 758 Indonesian stopwords
+  ...stopwords.en,  // 1298 English stopwords
+  ...BPS_SPECIFIC_NOISE,  // "menurut", "berdasarkan", "pemeluk", dll
+]);
 ```
 
 Contoh:
-- "berapa angka kemiskinan" → "kemiskinan"
-- "data pengangguran terbuka" → "pengangguran terbuka"
-- "jumlah penduduk miskin" → "penduduk miskin"
+- "berapa statistik terkait pemeluk agama di kab jombang" → "agama jombang"
+- "angka kemiskinan terbaru di indonesia" → "kemiskinan indonesia"
+- "jumlah penduduk berdasarkan agama" → "penduduk agama"
+- "what is the population of jakarta" → "population jakarta"
+
+### Resolve Canonical (Prefer Last Match)
+
+Untuk query dengan multiple keywords, prefer kata yang lebih spesifik (terakhir):
+
+```typescript
+"penduduk agama" → check "agama" dulu → KEYWORD_ALIASES["agama"] → "agama"
+// Bukan "penduduk" yang menang, karena "agama" lebih spesifik untuk konteks ini
+```
 
 ---
 
@@ -338,6 +349,13 @@ const KEYWORD_ALIASES: Record<string, string> = {
   "populasi": "penduduk",
   "population": "penduduk",
   "jumlah penduduk": "penduduk",
+
+  // Agama
+  "agama": "agama",
+  "religi": "agama",
+  "keagamaan": "agama",
+  "religion": "agama",
+  "pemeluk agama": "agama",
 };
 ```
 
@@ -525,6 +543,47 @@ interface LearnedPeriod {
 - Endpoint `/api/learned-vars` bisa public read (data BPS publik)
 - Write bisa dibatasi dengan simple shared secret atau rate limit
 - Atau: hanya accept write dari authenticated MCP sessions
+
+---
+
+## Static Table Fallback
+
+### Masalah
+
+Beberapa topik (seperti data agama) tidak tersedia sebagai dynamic data (time-series) di BPS WebAPI, tapi hanya sebagai **static table** (tabel HTML yang sudah di-format).
+
+### Solusi: Dual Fallback di `find_data`
+
+`find_data` sekarang punya 2 titik fallback ke static tables:
+
+**Fallback 1:** Jika `bestVar` null (tidak ketemu variabel sama sekali)
+```
+find_data("pemeluk agama", region="kab jombang")
+  → normalizeKeyword → "agama"
+  → lookupVar → miss (tidak ada di KNOWN_VARS)
+  → fullSearchVar → miss (tidak ada variabel dynamic untuk agama)
+  → tryStrategicIndicators → miss
+  → list_static_tables(domain="3517", keyword="agama")
+  → Pick best match → get_static_table() → return HTML table
+```
+
+**Fallback 2:** Jika `bestVar` ada tapi datacontent kosong
+```
+find_data("pemeluk agama", region="kab jombang")
+  → bestVar = {var_id: 9999} (found via full search)
+  → getDynamicData → datacontent kosong
+  → list_static_tables(domain="3517", keyword="agama")
+  → Pick best match → get_static_table() → return HTML table
+```
+
+### Contoh Query yang Benefit
+
+| Query | Dynamic Data? | Fallback |
+|-------|---------------|----------|
+| "pemeluk agama di kab jombang" | ❌ | ✅ Static table |
+| "distribusi penduduk per kecamatan" | ❌ | ✅ Static table |
+| "jumlah sekolah menurut kecamatan" | ❌ | ✅ Static table |
+| "angka kemiskinan jawa timur" | ✅ | N/A |
 
 ---
 
