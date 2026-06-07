@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.3](https://github.com/setiapam/bps-mcp-server/compare/v0.15.2...v0.15.3) (2026-06-07)
+
+
+### Bug Fixes
+
+* cap dynamic table rows to 150 and optimize static table fallback keyword strategy ([67deb50](https://github.com/setiapam/bps-mcp-server/commit/67deb506b9a94b994a5884672a94376a671c1db4))
+* **search:** resolve eslint no-useless-assignment and no-explicit-any ([8f1ad08](https://github.com/setiapam/bps-mcp-server/commit/8f1ad08ca436024eab8a9b8f1dd96038fecf375d))
+
+
+### Performance Improvements
+
+* implement prompt redirection, search fallback keywords, and reduce allstats timeout ([397d6f5](https://github.com/setiapam/bps-mcp-server/commit/397d6f53757b37b9bcd0b1d1d0e19cf82978a8ef))
+
 ## [0.15.2](https://github.com/setiapam/bps-mcp-server/compare/v0.15.1...v0.15.2) (2026-05-24)
 
 
