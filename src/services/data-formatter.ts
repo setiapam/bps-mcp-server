@@ -98,13 +98,32 @@ export function formatDynamicData(
     // Sort rows by period
     varRows.sort((a, b) => a.period.localeCompare(b.period));
 
-    for (const row of varRows) {
+    const MAX_TABLE_ROWS = 150;
+    const totalRows = varRows.length;
+    let rowsToRender = varRows;
+    let isTruncated = false;
+
+    if (totalRows > MAX_TABLE_ROWS) {
+      rowsToRender = varRows.slice(0, MAX_TABLE_ROWS);
+      isTruncated = true;
+    }
+
+    for (const row of rowsToRender) {
       const cols: string[] = [];
       if (hasVervar) cols.push(row.verticalVariable ?? "-");
       cols.push(row.period);
       if (hasTurvar) cols.push(row.derivedVariable ?? "-");
       cols.push(formatValue(row.value));
       lines.push("| " + cols.join(" | ") + " |");
+    }
+
+    if (isTruncated) {
+      lines.push("");
+      lines.push(
+        lang === "ind"
+          ? `_... [Menampilkan ${MAX_TABLE_ROWS} dari ${totalRows} baris. Data dipotong karena terlalu besar. Gunakan parameter 'year' atau filter wilayah/variabel lebih spesifik.]_`
+          : `_... [Showing ${MAX_TABLE_ROWS} of ${totalRows} rows. Data truncated for size. Use 'year' parameter or more specific region/variable filters.]_`
+      );
     }
 
     lines.push("");

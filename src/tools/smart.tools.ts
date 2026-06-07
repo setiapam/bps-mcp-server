@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
+import type { BpsStaticTable } from "../client/types.js";
 import type { Config } from "../config/index.js";
 import type { DomainResolver } from "../services/domain-resolver.js";
 import { formatDynamicData } from "../services/data-formatter.js";
@@ -211,38 +212,53 @@ Contoh:
           // Fallback: try static tables with multiple keyword strategies
           try {
             // Strategy 1: Try with normalized keyword
-            let staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            let tables = await safeListStaticTables(client, domain, kw);
 
-            // Strategy 2: If empty and keyword is short, try broader keywords
-            if ((!staticTables.data || staticTables.data.length === 0) && kw.split(/\s+/).length <= 2) {
-              // Try "penduduk" as broader keyword (covers "penduduk menurut agama", etc.)
-              if (kw !== "penduduk") {
-                staticTables = await client.listStaticTables(domain, "penduduk", undefined, undefined, 1);
+            // Strategy 2: If empty and keyword has multiple words, try splitting or using broader parts
+            if (tables.length === 0 && kw.split(/\s+/).length > 1) {
+              const words = kw.split(/\s+/);
+              // Try the last 2 words (e.g. "sensus ekonomi")
+              const lastTwo = words.slice(-2).join(" ");
+              tables = await safeListStaticTables(client, domain, lastTwo);
+              
+              if (tables.length === 0) {
+                // Try the first 2 words (e.g. "jumlah usaha")
+                const firstTwo = words.slice(0, 2).join(" ");
+                tables = await safeListStaticTables(client, domain, firstTwo);
               }
             }
 
-            // Strategy 3: If still empty, try without keyword filter
-            if ((!staticTables.data || staticTables.data.length === 0)) {
-              staticTables = await client.listStaticTables(domain, undefined, undefined, undefined, 1);
+            // Strategy 3: If empty and keyword is short, try broader keyword "penduduk"
+            if (tables.length === 0 && kw.split(/\s+/).length <= 2 && kw !== "penduduk") {
+              tables = await safeListStaticTables(client, domain, "penduduk");
             }
 
-            // Strategy 4: If kab/kota and still empty, try parent province
-            if ((!staticTables.data || staticTables.data.length === 0) &&
-                domain.length === 4 && !domain.endsWith("00")) {
+            // Strategy 4: If still empty, try without keyword filter
+            if (tables.length === 0) {
+              tables = await safeListStaticTables(client, domain, undefined);
+            }
+
+            // Strategy 5: If kab/kota and still empty, try parent province
+            if (tables.length === 0 && domain.length === 4 && !domain.endsWith("00")) {
               const parentDomain = domain.slice(0, 2) + "00";
-              staticTables = await client.listStaticTables(parentDomain, kw, undefined, undefined, 1);
-              if (!staticTables.data || staticTables.data.length === 0) {
-                staticTables = await client.listStaticTables(parentDomain, "penduduk", undefined, undefined, 1);
+              tables = await safeListStaticTables(client, parentDomain, kw);
+              if (tables.length === 0 && kw.split(/\s+/).length > 1) {
+                const words = kw.split(/\s+/);
+                const lastTwo = words.slice(-2).join(" ");
+                tables = await safeListStaticTables(client, parentDomain, lastTwo);
+              }
+              if (tables.length === 0) {
+                tables = await safeListStaticTables(client, parentDomain, "penduduk");
               }
             }
 
-            if (staticTables.data && staticTables.data.length > 0) {
+            if (tables.length > 0) {
               // Find best matching table
               const searchTerms = [kw, "penduduk", ...kw.split(/\s+/).filter(w => w.length > 2)];
-              const bestTable = staticTables.data.find(t => {
+              const bestTable = tables.find(t => {
                 const titleLower = t.title.toLowerCase();
                 return searchTerms.some(term => titleLower.includes(term));
-              }) || staticTables.data[0];
+              }) || tables[0];
 
               const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
               const tableLines = [
@@ -343,34 +359,53 @@ Contoh:
         if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
           // Try static tables fallback with multiple strategies
           try {
-            let staticTables = await client.listStaticTables(domain, kw, undefined, undefined, 1);
+            // Strategy 1: Try with normalized keyword
+            let tables = await safeListStaticTables(client, domain, kw);
 
-            // Strategy 2: If empty, try broader keyword "penduduk"
-            if ((!staticTables.data || staticTables.data.length === 0) && kw !== "penduduk") {
-              staticTables = await client.listStaticTables(domain, "penduduk", undefined, undefined, 1);
-            }
-
-            // Strategy 3: If still empty, try without keyword
-            if ((!staticTables.data || staticTables.data.length === 0)) {
-              staticTables = await client.listStaticTables(domain, undefined, undefined, undefined, 1);
-            }
-
-            // Strategy 4: If kab/kota, try parent province
-            if ((!staticTables.data || staticTables.data.length === 0) &&
-                domain.length === 4 && !domain.endsWith("00")) {
-              const parentDomain = domain.slice(0, 2) + "00";
-              staticTables = await client.listStaticTables(parentDomain, kw, undefined, undefined, 1);
-              if (!staticTables.data || staticTables.data.length === 0) {
-                staticTables = await client.listStaticTables(parentDomain, "penduduk", undefined, undefined, 1);
+            // Strategy 2: If empty and keyword has multiple words, try splitting or using broader parts
+            if (tables.length === 0 && kw.split(/\s+/).length > 1) {
+              const words = kw.split(/\s+/);
+              // Try the last 2 words (e.g. "sensus ekonomi")
+              const lastTwo = words.slice(-2).join(" ");
+              tables = await safeListStaticTables(client, domain, lastTwo);
+              
+              if (tables.length === 0) {
+                // Try the first 2 words (e.g. "jumlah usaha")
+                const firstTwo = words.slice(0, 2).join(" ");
+                tables = await safeListStaticTables(client, domain, firstTwo);
               }
             }
 
-            if (staticTables.data && staticTables.data.length > 0) {
+            // Strategy 3: If empty and keyword is short, try broader keyword "penduduk"
+            if (tables.length === 0 && kw.split(/\s+/).length <= 2 && kw !== "penduduk") {
+              tables = await safeListStaticTables(client, domain, "penduduk");
+            }
+
+            // Strategy 4: If still empty, try without keyword
+            if (tables.length === 0) {
+              tables = await safeListStaticTables(client, domain, undefined);
+            }
+
+            // Strategy 5: If kab/kota, try parent province
+            if (tables.length === 0 && domain.length === 4 && !domain.endsWith("00")) {
+              const parentDomain = domain.slice(0, 2) + "00";
+              tables = await safeListStaticTables(client, parentDomain, kw);
+              if (tables.length === 0 && kw.split(/\s+/).length > 1) {
+                const words = kw.split(/\s+/);
+                const lastTwo = words.slice(-2).join(" ");
+                tables = await safeListStaticTables(client, parentDomain, lastTwo);
+              }
+              if (tables.length === 0) {
+                tables = await safeListStaticTables(client, parentDomain, "penduduk");
+              }
+            }
+
+            if (tables.length > 0) {
               const searchTerms = [kw, "penduduk", ...kw.split(/\s+/).filter(w => w.length > 2)];
-              const bestTable = staticTables.data.find(t => {
+              const bestTable = tables.find(t => {
                 const titleLower = t.title.toLowerCase();
                 return searchTerms.some(term => titleLower.includes(term));
-              }) || staticTables.data[0];
+              }) || tables[0];
 
               const tableDetail = await client.getStaticTable(domain, bestTable.table_id);
               const tableLines = [
@@ -716,3 +751,21 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
 
   return score;
 }
+
+/**
+ * Safely lists static tables without throwing on BpsNotFoundError.
+ */
+async function safeListStaticTables(
+  client: BpsClient,
+  domain: string,
+  keyword?: string
+): Promise<BpsStaticTable[]> {
+  try {
+    const res = await client.listStaticTables(domain, keyword, undefined, undefined, 1);
+    return res.data || [];
+  } catch (err) {
+    logger.debug(`safeListStaticTables failed for keyword="${keyword}": ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
