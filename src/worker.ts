@@ -41,6 +41,36 @@ const oauthOptions = {
         );
       }
 
+      if (url.pathname === "/test-direct") {
+        const targets = {
+          webapi: "https://webapi.bps.go.id/v1/api/list/model/domain/key/testkey/",
+          allstats: "https://searchengine.web.bps.go.id/search?q=inflasi"
+        };
+        const results: Record<string, any> = {};
+        for (const [name, targetUrl] of Object.entries(targets)) {
+          try {
+            const res = await fetch(targetUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+              }
+            });
+            const text = await res.text();
+            results[name] = {
+              status: res.status,
+              statusText: res.statusText,
+              contentType: res.headers.get("content-type"),
+              bodyPreview: text.substring(0, 500)
+            };
+          } catch (err) {
+            results[name] = { error: err instanceof Error ? err.message : String(err) };
+          }
+        }
+        return new Response(JSON.stringify(results, null, 2), {
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
       if (url.pathname === "/authorize") {
         const oauthHelpers: OAuthHelpers = getOAuthApi(oauthOptions, env);
         return handleAuthorize(request, oauthHelpers);
