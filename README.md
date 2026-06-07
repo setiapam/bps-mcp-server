@@ -106,7 +106,7 @@ Deploy sebagai serverless worker di akun Cloudflare kamu:
 
 Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md).
 
-> **Catatan:** Jika deploy di Cloudflare Workers, BPS API tidak bisa diakses langsung karena Cloudflare bot detection memblokir request antar-Cloudflare. Gunakan [bps-api-proxy](https://github.com/setiapam/bps-api-proxy) sebagai relay — deploy di server dengan IP residential (homelab, VPS non-cloud, dll) dan set `BPS_API_BASE_URL` ke URL proxy.
+> **Catatan:** Saat ini, BPS WebAPI (`https://webapi.bps.go.id`) sudah tidak memblokir request dari Cloudflare Workers, sehingga Anda dapat mengaksesnya **secara langsung** (tanpa proxy). Namun, **AllStats Search Engine** (`https://searchengine.web.bps.go.id`) masih diblokir oleh Cloudflare bot challenge. Jika Anda menggunakan Cloudflare Workers dan ingin menggunakan fitur AllStats Search/Deep Search, gunakan [bps-api-proxy](https://github.com/setiapam/bps-api-proxy) sebagai relay (deploy di server dengan IP residential) dan set `BPS_ALLSTATS_BASE_URL` di `wrangler.toml` ke URL proxy tersebut.
 
 ## Konfigurasi MCP Client
 
