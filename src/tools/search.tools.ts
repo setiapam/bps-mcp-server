@@ -72,7 +72,6 @@ Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`
     },
     async ({ domain, keyword, type, page }) => {
       // --- Step 1: Try WebAPI ---
-      let webapiResult: { data: unknown[]; page?: any } | null = null;
       let webapiError: unknown = null;
 
       const searchWebAPI = async (kw: string) => {
@@ -86,7 +85,7 @@ Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`
         return null;
       };
 
-      webapiResult = await searchWebAPI(keyword);
+      let webapiResult = await searchWebAPI(keyword);
 
       // Fallback Strategy: If empty and keyword has multiple words, try splitting it
       if (!webapiResult && keyword.split(/\s+/).length > 1) {
