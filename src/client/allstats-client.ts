@@ -21,7 +21,7 @@ const BROWSER_HEADERS: Record<string, string> = {
   "Sec-Fetch-User": "?1",
   "Cache-Control": "max-age=0",
 };
-const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1_000;
 
@@ -148,9 +148,9 @@ export class AllStatsClient {
 
     const html = await this.fetchWithRetry(url.toString());
 
-    // Cache for 30 minutes
+    // Cache for 2 hours
     if (this.cache) {
-      await this.cache.set(cacheKey, html, 30 * 60);
+      await this.cache.set(cacheKey, html, 2 * 60 * 60);
     }
 
     return html;

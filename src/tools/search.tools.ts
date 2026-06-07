@@ -72,14 +72,36 @@ Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`
     },
     async ({ domain, keyword, type, page }) => {
       // --- Step 1: Try WebAPI ---
-      let webapiResult: { data: unknown[] } | null = null;
+      let webapiResult: { data: unknown[]; page?: any } | null = null;
       let webapiError: unknown = null;
 
-      try {
-        webapiResult = await client.search(domain, keyword, type, page);
-      } catch (error) {
-        webapiError = error;
-        logger.debug(`WebAPI search failed for "${keyword}": ${error instanceof Error ? error.message : "unknown"}`);
+      const searchWebAPI = async (kw: string) => {
+        try {
+          const res = await client.search(domain, kw, type, page);
+          if (res.data && res.data.length > 0) return res;
+        } catch (err) {
+          webapiError = err;
+          logger.debug(`WebAPI search failed for "${kw}": ${err instanceof Error ? err.message : "unknown"}`);
+        }
+        return null;
+      };
+
+      webapiResult = await searchWebAPI(keyword);
+
+      // Fallback Strategy: If empty and keyword has multiple words, try splitting it
+      if (!webapiResult && keyword.split(/\s+/).length > 1) {
+        const words = keyword.split(/\s+/);
+        // Try last 2 words
+        const lastTwo = words.slice(-2).join(" ");
+        logger.debug(`WebAPI search fallback: retrying with "${lastTwo}"`);
+        webapiResult = await searchWebAPI(lastTwo);
+
+        if (!webapiResult) {
+          // Try first 2 words
+          const firstTwo = words.slice(0, 2).join(" ");
+          logger.debug(`WebAPI search fallback: retrying with "${firstTwo}"`);
+          webapiResult = await searchWebAPI(firstTwo);
+        }
       }
 
       // Check if WebAPI returned data

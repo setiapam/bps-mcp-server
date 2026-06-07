@@ -100,7 +100,7 @@ export function registerAllStatsTools(
   // ---------- allstats_search ----------
   server.tool(
     "allstats_search",
-    "Pencarian konten BPS melalui AllStats Search Engine (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi). Berguna untuk discovery, mencari publikasi, atau sebagai alternatif/fallback dari WebAPI search. Tidak memerlukan API key.",
+    "Pencarian konten BPS melalui AllStats Search Engine (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi). PENTING: Tool ini memiliki latensi tinggi karena menggunakan proxy/scraping. Gunakan tool 'search' terlebih dahulu karena jauh lebih cepat. Hanya gunakan tool ini jika 'search' tidak menemukan hasil. Tidak memerlukan API key.",
     {
       query: z.string().describe("Kata kunci pencarian"),
       content: z

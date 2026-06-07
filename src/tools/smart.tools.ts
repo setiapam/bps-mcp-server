@@ -168,6 +168,75 @@ Contoh:
         const intent = detectIntent(query, region, year);
         logger.debug(`find_data: detected intent="${intent.intent}" confidence=${intent.confidence.toFixed(2)} tool="${intent.suggestedTool}"`);
 
+        // Prompt Redirection for specialized intents
+        if (intent.intent !== "single_value" && intent.intent !== "table" && intent.intent !== "unknown" && intent.confidence >= 0.6) {
+          let redirectionText = "";
+          if (intent.intent === "comparison") {
+            redirectionText = `**Menyalin intensi pencarian: Perbandingan Wilayah**\n` +
+              `Query Anda tampaknya merupakan perbandingan data antar wilayah. Silakan panggil tool \`compare_data\` untuk hasil terbaik.\n\n` +
+              `**Rekomendasi pemanggilan tool:**\n` +
+              `\`\`\`json\n` +
+              `{\n` +
+              `  "name": "compare_data",\n` +
+              `  "arguments": {\n` +
+              `    "query": "${query}",\n` +
+              `    "regions": "${region}"\n` +
+              (year ? `    ,"year": "${year}"\n` : "") +
+              `  }\n` +
+              `}\n` +
+              `\`\`\``;
+          } else if (intent.intent === "trend") {
+            redirectionText = `**Menyalin intensi pencarian: Tren Multi-Tahun**\n` +
+              `Query Anda tampaknya menanyakan perkembangan/tren data dari tahun ke tahun. Silakan panggil tool \`get_trend\` untuk hasil terbaik.\n\n` +
+              `**Rekomendasi pemanggilan tool:**\n` +
+              `\`\`\`json\n` +
+              `{\n` +
+              `  "name": "get_trend",\n` +
+              `  "arguments": {\n` +
+              `    "query": "${query}",\n` +
+              `    "region": "${region}"\n` +
+              `  }\n` +
+              `}\n` +
+              `\`\`\``;
+          } else if (intent.intent === "ranking") {
+            redirectionText = `**Menyalin intensi pencarian: Peringkat/Ranking**\n` +
+              `Query Anda tampaknya meminta peringkat data wilayah. Silakan panggil tool \`get_ranking\` untuk hasil terbaik.\n\n` +
+              `**Rekomendasi pemanggilan tool:**\n` +
+              `\`\`\`json\n` +
+              `{\n` +
+              `  "name": "get_ranking",\n` +
+              `  "arguments": {\n` +
+              `    "query": "${query}",\n` +
+              `    "top_n": 10,\n` +
+              `    "order": "highest"\n` +
+              `  }\n` +
+              `}\n` +
+              `\`\`\``;
+          } else if (intent.intent === "publication") {
+            redirectionText = `**Menyalin intensi pencarian: Publikasi/Dokumen**\n` +
+              `Query Anda tampaknya mencari publikasi atau dokumen statistik. Silakan panggil tool \`search\` atau \`allstats_search\` untuk hasil terbaik.\n\n` +
+              `**Rekomendasi pemanggilan tool:**\n` +
+              `\`\`\`json\n` +
+              `{\n` +
+              `  "name": "search",\n` +
+              `  "arguments": {\n` +
+              `    "keyword": "${query}",\n` +
+              `    "type": "publication"\n` +
+              `  }\n` +
+              `}\n` +
+              `\`\`\``;
+          }
+
+          if (redirectionText) {
+            return {
+              content: [{
+                type: "text",
+                text: appendAttribution(redirectionText + `\n\n_Catatan: Penggunaan tool spesifik di atas jauh lebih efisien dan akurat daripada find_data untuk query jenis ini._`)
+              }]
+            };
+          }
+        }
+
         // Step 1: Resolve domain
         let domain = "0000";
         let domainName = "Indonesia";
