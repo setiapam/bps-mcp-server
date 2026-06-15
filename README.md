@@ -404,7 +404,7 @@ src/
 │   ├── allstats.tools.ts   # AllStats search & deep search
 │   └── ...                  # Domain, publication, trade, etc.
 ├── transport/      # stdio transport
-├── utils/          # Logger, error handling, pagination
+├── utils/          # Logger and error handling
 ├── index.ts        # CLI entry point (stdio)
 ├── worker.ts       # Cloudflare Worker entry point (HTTP)
 └── server.ts       # MCP server factory

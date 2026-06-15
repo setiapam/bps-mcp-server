@@ -443,7 +443,6 @@ bps-mcp-server/
 │   │
 │   └── utils/                      # Shared utilities
 │       ├── logger.ts               # stderr logger (stdio-safe)
-│       ├── pagination.ts           # Auto-pagination helper
 │       └── error.ts                # Error handling & user-friendly messages
 │
 ├── worker/                         # Cloudflare Workers specific
