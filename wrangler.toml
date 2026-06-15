@@ -4,8 +4,8 @@ compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-# BPS_API_BASE_URL is not set so WebAPI requests are sent directly to the official BPS server
-# BPS_API_BASE_URL = "https://bps-api.murphi.my.id/v1"
+# BPS_API_BASE_URL is configured to route through the proxy and bypass BPS WAF blocks on Cloudflare Workers
+BPS_API_BASE_URL = "https://bps-api.murphi.my.id/v1"
 BPS_ALLSTATS_BASE_URL = "https://bps-api.murphi.my.id/allstats/"
 BPS_DEFAULT_LANG = "ind"
 BPS_DEFAULT_DOMAIN = "0000"
