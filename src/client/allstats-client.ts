@@ -397,7 +397,7 @@ export class AllStatsClient {
 
 // ========== Error ==========
 
-export class AllStatsError extends Error {
+class AllStatsError extends Error {
   constructor(
     message: string,
     public readonly statusCode?: number,

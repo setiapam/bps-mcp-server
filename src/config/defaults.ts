@@ -9,7 +9,7 @@ export const DEFAULTS = {
   HTTP_PORT: 3000,
 } as const;
 
-export const CACHE_TTL = {
+const CACHE_TTL = {
   DOMAIN_LIST: 7 * 24 * 60 * 60,       // 7 days — domains rarely change
   SUBJECT_LIST: 7 * 24 * 60 * 60,      // 7 days — subjects rarely change
   VARIABLE_LIST: 24 * 60 * 60,         // 24 hours

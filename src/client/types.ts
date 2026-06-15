@@ -1,5 +1,5 @@
 /** Generic BPS API response wrapper */
-export interface BpsApiResponse<T> {
+interface BpsApiResponse<T> {
   status: string;
   "data-availability": string;
   data: T;
@@ -7,7 +7,7 @@ export interface BpsApiResponse<T> {
 }
 
 /** Paginated BPS API response */
-export interface BpsPaginatedResponse<T> {
+interface BpsPaginatedResponse<T> {
   status: string;
   "data-availability": string;
   data: [PageInfo, T[]];
@@ -167,7 +167,7 @@ export interface BpsStrategicIndicator {
 }
 
 /** Trade HS data */
-export interface BpsTradeData {
+interface BpsTradeData {
   hs_code: string;
   description: string;
   data?: Record<string, number>;

@@ -11,7 +11,7 @@ export interface LearnedVar {
 }
 
 /** Learned period entry stored in persistent store. */
-export interface LearnedPeriod {
+interface LearnedPeriod {
   periodId: string;
   year: string;
 }

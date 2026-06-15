@@ -3,3 +3,6 @@ dist/
 .env
 *.tgz
 .DS_Store
+.agents/
+.claude/
+skills-lock.json
