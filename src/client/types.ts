@@ -1,18 +1,4 @@
-/** Generic BPS API response wrapper */
-interface BpsApiResponse<T> {
-  status: string;
-  "data-availability": string;
-  data: T;
-  message?: string;
-}
 
-/** Paginated BPS API response */
-interface BpsPaginatedResponse<T> {
-  status: string;
-  "data-availability": string;
-  data: [PageInfo, T[]];
-  message?: string;
-}
 
 export interface PageInfo {
   page: number;
@@ -166,12 +152,7 @@ export interface BpsStrategicIndicator {
   data?: Record<string, number | string>;
 }
 
-/** Trade HS data */
-interface BpsTradeData {
-  hs_code: string;
-  description: string;
-  data?: Record<string, number>;
-}
+
 
 /** Infographic */
 export interface BpsInfographic {
