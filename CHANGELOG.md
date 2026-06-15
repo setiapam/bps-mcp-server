@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.4](https://github.com/setiapam/bps-mcp-server/compare/v0.15.3...v0.15.4) (2026-06-15)
+
+
+### Bug Fixes
+
+* delete unused local variables and types to resolve eslint failures ([a262f69](https://github.com/setiapam/bps-mcp-server/commit/a262f69a4966a05515ecb6fcc85cc4a76b327b84))
+
 ## [0.15.3](https://github.com/setiapam/bps-mcp-server/compare/v0.15.2...v0.15.3) (2026-06-07)
 
 
