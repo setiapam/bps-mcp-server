@@ -1,4 +1,5 @@
 import type { ICacheProvider } from "./cache.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * KV-based cache implementation for Cloudflare Workers.
@@ -8,15 +9,28 @@ export class KVCache implements ICacheProvider {
   constructor(private readonly kv: KVNamespace) {}
 
   async get(key: string): Promise<string | null> {
-    return this.kv.get(key);
+    try {
+      return await this.kv.get(key);
+    } catch (error) {
+      logger.warn(`KV cache get failed: ${error}`);
+      return null;
+    }
   }
 
   async set(key: string, value: string, ttlSeconds: number): Promise<void> {
-    await this.kv.put(key, value, { expirationTtl: ttlSeconds });
+    try {
+      await this.kv.put(key, value, { expirationTtl: ttlSeconds });
+    } catch (error) {
+      logger.warn(`KV cache set failed (could be due to limit exceeded): ${error}`);
+    }
   }
 
   async delete(key: string): Promise<void> {
-    await this.kv.delete(key);
+    try {
+      await this.kv.delete(key);
+    } catch (error) {
+      logger.warn(`KV cache delete failed: ${error}`);
+    }
   }
 
   async clear(): Promise<void> {

@@ -410,6 +410,17 @@ src/
 └── server.ts       # MCP server factory
 ```
 
+## Dukungan & Donasi
+
+Project ini dikembangkan secara independen dan seluruh infrastruktur cloud hosting (termasuk server proxy BPS, Cloudflare Worker, database token OAuth, dll.) ditanggung secara **pribadi**. 
+
+Jika Anda terbantu dengan project ini dan ingin mendukung agar server remote tetap menyala secara gratis serta pembangunannya tetap lancar, Anda dapat memberikan dukungan melalui platform berikut:
+
+* **Untuk Donasi Lokal (Indonesia):**
+  * [Saweria](https://saweria.co/setiapam)
+* **Untuk Donasi Internasional:**
+  * [GitHub Sponsors](https://github.com/sponsors/setiapam)
+
 ## Atribusi
 
 Sumber: Badan Pusat Statistik (BPS) — https://www.bps.go.id

@@ -38,16 +38,27 @@ export async function handleAuthorize(
       return renderLoginPage(authRequest, "API key BPS tidak valid. Pastikan key Anda benar.");
     }
 
-    // Complete authorization — store BPS API key in props
-    const { redirectTo } = await oauthHelpers.completeAuthorization({
-      request: authRequest,
-      userId: `bps_${hashKey(apiKey)}`,
-      metadata: { createdAt: Date.now() },
-      scope: authRequest.scope,
-      props: { bpsApiKey: apiKey },
-    });
+    try {
+      // Complete authorization — store BPS API key in props
+      const { redirectTo } = await oauthHelpers.completeAuthorization({
+        request: authRequest,
+        userId: `bps_${hashKey(apiKey)}`,
+        metadata: { createdAt: Date.now() },
+        scope: authRequest.scope,
+        props: { bpsApiKey: apiKey },
+      });
 
-    return Response.redirect(redirectTo, 302);
+      return Response.redirect(redirectTo, 302);
+    } catch (error) {
+      const isKvLimit = error instanceof Error && 
+        (error.message.includes("limit") || error.message.includes("quota") || error.message.includes("429"));
+      
+      const errorMsg = isKvLimit
+        ? "Gagal melakukan otorisasi karena batas penyimpanan (Cloudflare Workers KV) harian telah terlampaui. Silakan hubungi administrator."
+        : `Gagal menyimpan otorisasi OAuth: ${error instanceof Error ? error.message : String(error)}`;
+      
+      return renderLoginPage(authRequest, errorMsg);
+    }
   }
 
   return new Response("Method not allowed", { status: 405 });

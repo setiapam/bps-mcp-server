@@ -8,6 +8,7 @@ export interface WorkerEnv {
   BPS_DEFAULT_LANG?: string;
   BPS_DEFAULT_DOMAIN?: string;
   BPS_LOG_LEVEL?: string;
+  BPS_CACHE_ENABLED?: string;
 }
 
 export function loadWorkerConfig(env: WorkerEnv, apiKey: string): Config {
@@ -18,7 +19,7 @@ export function loadWorkerConfig(env: WorkerEnv, apiKey: string): Config {
     allStatsBaseUrl: env.BPS_ALLSTATS_BASE_URL,
     defaultLang: (env.BPS_DEFAULT_LANG || DEFAULTS.DEFAULT_LANG) as "ind" | "eng",
     defaultDomain: env.BPS_DEFAULT_DOMAIN || DEFAULTS.DEFAULT_DOMAIN,
-    cacheEnabled: true,
+    cacheEnabled: env.BPS_CACHE_ENABLED !== "false",
     cacheMaxEntries: DEFAULTS.CACHE_MAX_ENTRIES,
     logLevel: (env.BPS_LOG_LEVEL || "warn") as "debug" | "info" | "warn" | "error",
   };
