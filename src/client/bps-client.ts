@@ -149,12 +149,68 @@ export class BpsClient {
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new BpsApiError(`Request timeout after ${FETCH_TIMEOUT_MS}ms`, 408, url);
       }
-      throw error;
+      
+      // Dynamic fallback to proxy on network failure
+      if (url.includes("https://webapi.bps.go.id/v1")) {
+        try {
+          const { setWafBlockedStatus } = await import("../utils/routing-fallback.js");
+          setWafBlockedStatus(true);
+        } catch {
+          // ignore
+        }
+        const proxyBase = "https://bps-api.murphi.my.id/v1";
+        const rewrittenUrl = url.replace("https://webapi.bps.go.id/v1", proxyBase);
+        logger.warn(`Direct access network error (${error}). Retrying via proxy: ${rewrittenUrl}`);
+        
+        res = await fetch(rewrittenUrl, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+            ...authHeaders,
+          },
+          signal: controller.signal,
+        });
+      } else {
+        throw error;
+      }
     } finally {
       clearTimeout(timeout);
     }
 
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 403 || res.status === 1020) {
+      const text = await res.text();
+      const isWaf = text.includes("cloudflare") || text.includes("WAF") || text.includes("Access Denied") || text.includes("error-code");
+      if (isWaf && url.includes("https://webapi.bps.go.id/v1")) {
+        try {
+          const { setWafBlockedStatus } = await import("../utils/routing-fallback.js");
+          setWafBlockedStatus(true);
+        } catch {
+          // ignore
+        }
+        const proxyBase = "https://bps-api.murphi.my.id/v1";
+        const rewrittenUrl = url.replace("https://webapi.bps.go.id/v1", proxyBase);
+        logger.warn(`Direct access WAF block detected (status ${res.status}). Retrying via proxy: ${rewrittenUrl}`);
+        
+        const retryRes = await fetch(rewrittenUrl, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+            ...authHeaders,
+          },
+          signal: controller.signal,
+        });
+        
+        if (retryRes.status === 401 || retryRes.status === 403) {
+          throw new BpsAuthError();
+        }
+        if (!retryRes.ok) {
+          throw new BpsApiError(`BPS API error (proxied): ${retryRes.status} ${retryRes.statusText}`, retryRes.status, rewrittenUrl);
+        }
+        res = retryRes;
+      } else {
+        throw new BpsAuthError();
+      }
+    } else if (res.status === 401) {
       throw new BpsAuthError();
     }
 

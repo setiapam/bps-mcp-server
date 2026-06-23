@@ -3,6 +3,7 @@ import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { handleAuthorize } from "./auth/oauth-handler.js";
 import { McpHandler } from "./worker-mcp.js";
 import { handleLearningApi } from "./api/learning-api.js";
+import { handleTestWaf } from "./api/test-waf.js";
 
 // Wrangler bundles with esbuild which resolves JSON imports at build time
 import pkg from "../package.json";
@@ -44,6 +45,10 @@ const oauthOptions = {
       if (url.pathname === "/authorize") {
         const oauthHelpers: OAuthHelpers = getOAuthApi(oauthOptions, env);
         return handleAuthorize(request, oauthHelpers);
+      }
+
+      if (url.pathname === "/api/test-waf") {
+        return handleTestWaf(env);
       }
 
       // Learning sync API
