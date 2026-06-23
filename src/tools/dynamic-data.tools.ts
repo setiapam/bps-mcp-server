@@ -193,6 +193,7 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     `Ambil data dari tabel dinamis BPS. Tool ini membutuhkan ID variabel yang spesifik.
 
 PENTING: Gunakan find_data terlebih dahulu untuk pencarian otomatis. Gunakan tool ini hanya jika sudah tahu var_id.
+BPS WebAPI mewajibkan/sangat membutuhkan parameter th (tahun) untuk beberapa variabel tertentu (misal: Garis Kemiskinan), jika dikosongkan API BPS akan merespons kosong. Disarankan selalu menyertakan parameter th (tahun) yang ingin dicari (misal: '2023' atau '2020,2021,2022,2023,2024').
 
 Variabel umum (nasional, domain=0000):
 - 1452: Jumlah Penduduk (ribu jiwa)
@@ -206,7 +207,7 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
     {
       domain: z.string().describe("Kode domain BPS. '0000' untuk nasional."),
       var: z.string().describe("ID variabel (bisa beberapa, pisahkan dengan koma). Contoh: '1452' atau '1452,1453'"),
-      th: z.string().optional().describe("Kode periode/tahun (bisa beberapa). Contoh: '2023' atau '2020,2021,2022,2023'"),
+      th: z.string().optional().describe("Kode periode/tahun (bisa beberapa, contoh: '2023' atau '2020,2021,2022,2023'). PENTING: Selalu berikan nilai th jika mencari data yang rentan kosong seperti Garis Kemiskinan."),
       turvar: z.string().optional().describe("Kode turunan variabel"),
       vervar: z.string().optional().describe("Kode variabel vertikal"),
       turth: z.string().optional().describe("Kode turunan periode"),
