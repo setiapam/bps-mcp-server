@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/setiapam/bps-mcp-server/compare/v0.16.1...v0.16.2) (2026-06-23)
+
+
+### Bug Fixes
+
+* use list subject endpoint in WAF test logic to match actual blocked paths ([03478d3](https://github.com/setiapam/bps-mcp-server/commit/03478d3067b9b89aa41ec11d75e5c400dca62e64))
+
 ## [0.16.1](https://github.com/setiapam/bps-mcp-server/compare/v0.16.0...v0.16.1) (2026-06-23)
 
 
