@@ -29,7 +29,7 @@ export function setWafBlockedStatus(blocked: boolean): void {
  * Returns true if blocked, false if accessible.
  */
 export async function checkWafDirectly(): Promise<boolean> {
-  const url = `${DIRECT_API_BASE}/api/domain/type/all/key/dummy_key/`;
+  const url = `${DIRECT_API_BASE}/api/list/model/subject/domain/0000/lang/ind/key/dummy_key/`;
   try {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 4000); // 4 seconds timeout

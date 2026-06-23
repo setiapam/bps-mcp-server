@@ -2,6 +2,7 @@ import { getWafBlockedStatus, type RoutingEnv } from "../utils/routing-fallback.
 
 const DIRECT_API_BASE = "https://webapi.bps.go.id/v1";
 const PROXY_API_BASE = "https://bps-api.murphi.my.id/v1";
+const TEST_PATH = "/api/list/model/subject/domain/0000/lang/ind/key/dummy_key/";
 
 interface AccessResult {
   status: number;
@@ -14,7 +15,7 @@ export async function handleTestWaf(env: RoutingEnv): Promise<Response> {
   const startDirect = Date.now();
   const directResult: AccessResult = await (async () => {
     try {
-      const resDirect = await fetch(`${DIRECT_API_BASE}/api/domain/type/all/key/dummy_key/`, {
+      const resDirect = await fetch(`${DIRECT_API_BASE}${TEST_PATH}`, {
         headers: {
           "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         },
@@ -42,7 +43,7 @@ export async function handleTestWaf(env: RoutingEnv): Promise<Response> {
   const proxyResult: AccessResult = await (async () => {
     try {
       const proxyBase = env.BPS_PROXY_API_BASE_URL || PROXY_API_BASE;
-      const resProxy = await fetch(`${proxyBase}/api/domain/type/all/key/dummy_key/`, {
+      const resProxy = await fetch(`${proxyBase}${TEST_PATH}`, {
         headers: {
           "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         },
@@ -76,14 +77,14 @@ export async function handleTestWaf(env: RoutingEnv): Promise<Response> {
       wafBlocked: directResult.blocked,
       currentCachedStatus: currentCachedStatus,
       directAccess: {
-        url: `${DIRECT_API_BASE}/api/domain/type/all/key/dummy_key/`,
+        url: `${DIRECT_API_BASE}${TEST_PATH}`,
         status: directResult.status,
         blocked: directResult.blocked,
         durationMs: directDuration,
         responseSnippet: directResult.snippet,
       },
       proxyAccess: {
-        url: `${env.BPS_PROXY_API_BASE_URL || PROXY_API_BASE}/api/domain/type/all/key/dummy_key/`,
+        url: `${env.BPS_PROXY_API_BASE_URL || PROXY_API_BASE}${TEST_PATH}`,
         status: proxyResult.status,
         ok: proxyResult.ok,
         durationMs: proxyDuration,
