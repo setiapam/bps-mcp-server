@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.3](https://github.com/setiapam/bps-mcp-server/compare/v0.16.2...v0.16.3) (2026-06-23)
+
+
+### Bug Fixes
+
+* resolve strategic indicators schema mapping, list_domains validation, and poverty line keyword matching ([75dee24](https://github.com/setiapam/bps-mcp-server/commit/75dee24c9565b6dbc60dee787e6cd1db6ce4e2cd))
+
 ## [0.16.2](https://github.com/setiapam/bps-mcp-server/compare/v0.16.1...v0.16.2) (2026-06-23)
 
 
