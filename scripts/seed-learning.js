@@ -56,7 +56,10 @@ async function pushToWorker(key, value) {
   try {
     await fetch(`${WORKER_URL}/api/learned-vars`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-bps-api-key": API_KEY,
+      },
       body: JSON.stringify({ key, value: JSON.stringify(value) }),
       signal: AbortSignal.timeout(5000),
     });

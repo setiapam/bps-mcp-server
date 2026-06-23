@@ -518,16 +518,20 @@ interface LearnedPeriod {
 
 ```typescript
 // GET /api/learned-vars
+// Headers: { "x-bps-api-key": "your_bps_api_key" }
 // Response: { entries: { "miskin:3500": {...}, "pengangguran:0000": {...} } }
 
 // POST /api/learned-vars
+// Headers: { "x-bps-api-key": "your_bps_api_key", "Content-Type": "application/json" }
 // Body: { key: "miskin:3500", value: {...} }
 // Response: { ok: true }
 
 // GET /api/learned-periods
+// Headers: { "x-bps-api-key": "your_bps_api_key" }
 // Response: { entries: { "period:184:3500:2023": {...}, ... } }
 
 // POST /api/learned-periods
+// Headers: { "x-bps-api-key": "your_bps_api_key", "Content-Type": "application/json" }
 // Body: { key: "period:184:3500:2023", value: {...} }
 // Response: { ok: true }
 ```
@@ -540,9 +544,8 @@ interface LearnedPeriod {
 
 ### Security
 
-- Endpoint `/api/learned-vars` bisa public read (data BPS publik)
-- Write bisa dibatasi dengan simple shared secret atau rate limit
-- Atau: hanya accept write dari authenticated MCP sessions
+- Semua endpoint `/api/learned-` dilindungi dan memerlukan header `X-BPS-API-Key` yang valid.
+- Key divalidasi ke server BPS secara langsung, kemudian divalidasi dan di-cache di dalam Worker KV selama 7 hari untuk performa optimal dan mencegah penyalahgunaan (DDoS/abuse).
 
 ---
 
