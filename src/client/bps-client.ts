@@ -222,7 +222,55 @@ export class BpsClient {
       );
     }
 
-    const json = await res.json() as T;
+    let json: T;
+    try {
+      json = await res.json() as T;
+    } catch (parseError) {
+      if (url.includes("https://webapi.bps.go.id/v1")) {
+        try {
+          const { setWafBlockedStatus } = await import("../utils/routing-fallback.js");
+          setWafBlockedStatus(true);
+        } catch {
+          // ignore
+        }
+        const proxyBase = "https://bps-api.murphi.my.id/v1";
+        const rewrittenUrl = url.replace("https://webapi.bps.go.id/v1", proxyBase);
+        logger.warn(`JSON parsing failed (could be WAF block with empty/HTML body). Retrying via proxy: ${rewrittenUrl}`);
+
+        const retryRes = await fetch(rewrittenUrl, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+            ...authHeaders,
+          },
+          signal: controller.signal,
+        });
+
+        if (!retryRes.ok) {
+          throw new BpsApiError(
+            `BPS API error (proxied after parse failure): ${retryRes.status} ${retryRes.statusText}`,
+            retryRes.status,
+            rewrittenUrl
+          );
+        }
+
+        try {
+          json = await retryRes.json() as T;
+        } catch (retryParseError) {
+          throw new BpsApiError(
+            `Failed to parse proxied BPS response as JSON: ${retryParseError instanceof Error ? retryParseError.message : String(retryParseError)}`,
+            retryRes.status,
+            rewrittenUrl
+          );
+        }
+      } else {
+        throw new BpsApiError(
+          `Failed to parse BPS API response as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+          res.status,
+          url
+        );
+      }
+    }
 
     // BPS API returns status field - check for errors
     const apiResponse = json as Record<string, unknown>;
