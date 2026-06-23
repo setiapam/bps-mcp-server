@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/setiapam/bps-mcp-server/compare/v0.16.0...v0.16.1) (2026-06-23)
+
+
+### Bug Fixes
+
+* failover to proxy on JSON parsing failures to handle empty WAF blocks ([00f2ca8](https://github.com/setiapam/bps-mcp-server/commit/00f2ca865ab4fcba5cf13bb0947bbc49caccb9fa))
+
 ## [0.16.0](https://github.com/setiapam/bps-mcp-server/compare/v0.15.5...v0.16.0) (2026-06-23)
 
 
