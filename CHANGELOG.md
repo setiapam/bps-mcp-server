@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.5](https://github.com/setiapam/bps-mcp-server/compare/v0.15.4...v0.15.5) (2026-06-23)
+
+
+### Bug Fixes
+
+* resolve security vulnerabilities and optimize rate limiter ([6bcb30c](https://github.com/setiapam/bps-mcp-server/commit/6bcb30c7dd500913feded7348924b7db5088ff98))
+
 ## [0.15.4](https://github.com/setiapam/bps-mcp-server/compare/v0.15.3...v0.15.4) (2026-06-15)
 
 
