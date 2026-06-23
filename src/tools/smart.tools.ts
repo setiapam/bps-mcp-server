@@ -686,21 +686,20 @@ async function tryStrategicIndicators(
   for (const ind of indicators.data) {
     const titleLower = ind.title.toLowerCase();
     if (titleLower.includes(kw) || kw.split(/\s+/).some(w => titleLower.includes(w))) {
+      if (year && !ind.periode.includes(year)) {
+        continue;
+      }
+      const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : String(ind.value);
       const lines = [
         `## ${ind.title}`,
         `**Wilayah:** ${domainName} (${domain})`,
         "",
+        `| Periode | Nilai |`,
+        `| --- | --- |`,
+        `| ${ind.periode} | ${val} ${ind.unit} |`,
       ];
-      if (ind.data) {
-        lines.push("| Periode | Nilai |");
-        lines.push("| --- | --- |");
-        const entries = Object.entries(ind.data);
-        const filtered = year
-          ? entries.filter(([k]) => year.split(",").some(y => k.includes(y)))
-          : entries.slice(-10);
-        for (const [period, value] of filtered) {
-          lines.push(`| ${period} | ${typeof value === "number" ? value.toLocaleString("id-ID") : value} |`);
-        }
+      if (ind.name) {
+        lines.push("", `_${ind.name}_`);
       }
       return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
     }
@@ -807,7 +806,7 @@ function computeRelevanceScore(query: string, title: string, subName: string): n
       if (title.includes("persentase")) score += 40;
       else if (title.includes("jumlah penduduk miskin")) score += 20;
     }
-    if (title.includes("garis kemiskinan")) score -= 30;
+    if (title.includes("garis kemiskinan") && !query.includes("garis")) score -= 30;
     if (title.includes("indeks kedalaman") || title.includes("indeks keparahan")) score -= 20;
   }
 

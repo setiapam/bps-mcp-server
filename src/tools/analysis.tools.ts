@@ -133,35 +133,21 @@ Contoh query user yang cocok untuk tool ini:
             for (const ind of indicators.data) {
               const t = ind.title.toLowerCase();
               if (t.includes(kw2) || kw2.split(/\s+/).some(w => w.length > 2 && t.includes(w))) {
-                if (ind.data) {
-                  const entries = Object.entries(ind.data).filter(([k]) => {
-                    const y = parseInt(k);
-                    return y >= parseInt(start_year) && y <= parseInt(end_year);
-                  });
-                  if (entries.length > 0) {
-                    const lines = [`## Tren ${ind.title}`, `**Wilayah:** ${domainName} | **Periode:** ${start_year}–${end_year}`, "", "| Tahun | Nilai | Perubahan |", "| --- | --- | --- |"];
-                    const sorted = entries.sort((a, b) => a[0].localeCompare(b[0]));
-                    for (let i = 0; i < sorted.length; i++) {
-                      const [period, val] = sorted[i];
-                      let change = "-";
-                      if (i > 0 && typeof val === "number" && typeof sorted[i-1][1] === "number") {
-                        const prev = sorted[i-1][1] as number;
-                        const pct = ((val - prev) / Math.abs(prev) * 100).toFixed(1);
-                        change = `${val > prev ? "+" : ""}${pct}%`;
-                      }
-                      lines.push(`| ${period} | ${typeof val === "number" ? val.toLocaleString("id-ID") : val} | ${change} |`);
-                    }
-                    if (sorted.length >= 2) {
-                      const first = sorted[0][1] as number;
-                      const last = sorted[sorted.length-1][1] as number;
-                      if (typeof first === "number" && typeof last === "number") {
-                        const totalChange = ((last - first) / Math.abs(first) * 100).toFixed(1);
-                        lines.push("", `**Tren:** ${last > first ? "naik" : "turun"} ${totalChange}% dari ${sorted[0][0]} ke ${sorted[sorted.length-1][0]}`);
-                      }
-                    }
-                    return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
-                  }
+                const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
+                const lines = [
+                  `## Tren/Headline ${ind.title}`,
+                  `**Wilayah:** ${domainName} (${domain})`,
+                  "",
+                  `*Catatan: Menggunakan data headline indikator strategis karena variabel time-series lengkap tidak ditemukan.*`,
+                  "",
+                  `| Periode | Nilai |`,
+                  `| --- | --- |`,
+                  `| ${ind.periode} | ${val} ${ind.unit} |`,
+                ];
+                if (ind.name) {
+                  lines.push("", `_${ind.name}_`);
                 }
+                return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
               }
             }
           }
@@ -572,14 +558,12 @@ async function fetchDataForDomain(
       for (const ind of indicators.data) {
         const t = ind.title.toLowerCase();
         if (t.includes(kw2) || kw2.split(/\s+/).some(w => w.length > 2 && t.includes(w))) {
-          if (ind.data) {
-            const entries = Object.entries(ind.data);
-            const match = year ? entries.find(([k]) => k.includes(year)) : entries[entries.length - 1];
-            if (match) {
-              const val = typeof match[1] === "number" ? match[1].toLocaleString("id-ID") : String(match[1]);
-              return { value: val, varTitle: ind.title };
-            }
+          if (year && !ind.periode.includes(year)) {
+            continue;
           }
+          const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : String(ind.value);
+          const unit = ind.unit && !ind.unit.toLowerCase().includes("tidak ada") ? ` ${ind.unit}` : "";
+          return { value: `${val}${unit} (${ind.periode})`, varTitle: ind.title };
         }
       }
     }

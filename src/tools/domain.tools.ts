@@ -19,6 +19,15 @@ export function registerDomainTools(
       prov: z.string().optional().describe("ID provinsi (wajib jika type=kabbyprov). Contoh: '35' untuk Jawa Timur"),
     },
     async ({ type, prov }) => {
+      if (type === "kabbyprov" && !prov) {
+        return {
+          content: [{
+            type: "text",
+            text: "Error: Parameter 'prov' (ID Provinsi) wajib diisi jika type adalah 'kabbyprov'."
+          }],
+          isError: true
+        };
+      }
       try {
         const result = await client.listDomains(type, prov);
         const text = formatList(

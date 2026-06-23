@@ -21,7 +21,12 @@ Untuk data historis multi-tahun, gunakan find_data atau get_dynamic_data.`,
         const result = await client.listStrategicIndicators(domain, varId, page);
         const text = formatList(
           result.data,
-          (ind) => `**${ind.title}** (ID: ${ind.indicator_id}) — Subjek: ${ind.sub_name}`,
+          (ind) => {
+            const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
+            let desc = `**${ind.title}** (ID: ${ind.indicator_id}) — **${val} ${ind.unit}** (${ind.periode})`;
+            if (ind.name) desc += `\n   _${ind.name}_`;
+            return desc;
+          },
           "Daftar Indikator Strategis"
         );
         return { content: [{ type: "text", text }] };

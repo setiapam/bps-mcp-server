@@ -23,6 +23,9 @@ const KNOWN_VARS: Record<string, LearnedVar[]> = {
     { var_id: 184, title: "Persentase Penduduk Miskin", sub_name: "Kemiskinan dan Ketimpangan" },
     { var_id: 183, title: "Jumlah Penduduk Miskin (ribu jiwa)", sub_name: "Kemiskinan dan Ketimpangan" },
   ],
+  garis_kemiskinan: [
+    { var_id: 195, title: "Garis Kemiskinan", sub_name: "Kemiskinan dan Ketimpangan" }
+  ],
   pengangguran: [
     { var_id: 543, title: "Tingkat Pengangguran Terbuka (%)", sub_name: "Tenaga Kerja" },
     { var_id: 674, title: "Jumlah Pengangguran (jiwa)", sub_name: "Tenaga Kerja" },
@@ -42,6 +45,7 @@ const KNOWN_VARS: Record<string, LearnedVar[]> = {
 
 const KEYWORD_ALIASES: Record<string, string> = {
   // Kemiskinan
+  "garis kemiskinan": "garis_kemiskinan",
   kemiskinan: "miskin",
   "penduduk miskin": "miskin",
   "warga miskin": "miskin",
@@ -120,29 +124,23 @@ function resolveCanonical(normalized: string): string {
   // Check if normalized IS a canonical key
   if (KNOWN_VARS[normalized]) return normalized;
 
-  // Collect all matching canonical keys, prefer last match (more specific topic)
-  let lastMatch: string | null = null;
-  let lastPos = -1;
-
-  // Check alias keys
-  for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
-    const pos = normalized.indexOf(alias);
-    if (pos >= 0 && pos > lastPos) {
-      lastMatch = canonical;
-      lastPos = pos;
+  // Find matching alias, sorting by length descending to match more specific/longer phrases first
+  const sortedAliases = Object.keys(KEYWORD_ALIASES).sort((a, b) => b.length - a.length);
+  for (const alias of sortedAliases) {
+    if (normalized.includes(alias)) {
+      return KEYWORD_ALIASES[alias];
     }
   }
 
-  // Check KNOWN_VARS keys
-  for (const key of Object.keys(KNOWN_VARS)) {
-    const pos = normalized.indexOf(key);
-    if (pos >= 0 && pos > lastPos) {
-      lastMatch = key;
-      lastPos = pos;
+  // Find matching canonical key
+  const sortedKnown = Object.keys(KNOWN_VARS).sort((a, b) => b.length - a.length);
+  for (const key of sortedKnown) {
+    if (normalized.includes(key)) {
+      return key;
     }
   }
 
-  // Also check word-level: split normalized and check each word
+  // Word-level fallback
   const words = normalized.split(/\s+/);
   for (let i = words.length - 1; i >= 0; i--) {
     const word = words[i];
@@ -153,15 +151,15 @@ function resolveCanonical(normalized: string): string {
       return word;
     }
     // Substring check for individual words
-    for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
-      if (alias.includes(word) || word.includes(alias)) return canonical;
+    for (const alias of sortedAliases) {
+      if (alias.includes(word) || word.includes(alias)) return KEYWORD_ALIASES[alias];
     }
-    for (const key of Object.keys(KNOWN_VARS)) {
+    for (const key of sortedKnown) {
       if (key.includes(word) || word.includes(key)) return key;
     }
   }
 
-  return lastMatch || normalized;
+  return normalized;
 }
 
 /**

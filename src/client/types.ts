@@ -145,12 +145,22 @@ export interface BpsPublication {
 
 /** Strategic Indicator */
 export interface BpsStrategicIndicator {
+  var?: number;
   indicator_id: number;
+  subject_csa?: number;
   title: string;
-  sub_id: number;
-  sub_name: string;
+  name?: string;
+  data_source?: string;
+  value: number | string;
+  unit: string;
+  category?: number;
+  hash_id?: string;
+  periode: string;
+  sub_id?: number;
+  sub_name?: string;
   data?: Record<string, number | string>;
 }
+
 
 
 
