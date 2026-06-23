@@ -7,12 +7,9 @@ import { KVStore } from "./services/kv-store.js";
 import pkg from "../package.json";
 import type { Env } from "./worker.js";
 
-// Rate limiting (in-memory counter to avoid KV PUT operations)
-interface RateLimitData {
-  count: number;
-  window: number;
-}
-const rateLimitMap = new Map<string, RateLimitData>();
+// Rate limiting (in-memory fixed-window to avoid KV PUT operations and O(N) cleanup)
+let currentWindow = 0;
+const rateLimitMap = new Map<string, number>();
 
 async function checkRateLimit(
   _kv: KVNamespace,
@@ -20,26 +17,18 @@ async function checkRateLimit(
   maxRpm: number
 ): Promise<{ allowed: boolean; remaining: number }> {
   const window = Math.floor(Date.now() / 60_000);
-  const current = rateLimitMap.get(userId);
 
-  // Periodically clean up old entries in rateLimitMap to prevent memory leaks
-  if (rateLimitMap.size > 2000) {
-    for (const [key, val] of rateLimitMap.entries()) {
-      if (val.window < window - 1) {
-        rateLimitMap.delete(key);
-      }
-    }
+  if (window !== currentWindow) {
+    rateLimitMap.clear();
+    currentWindow = window;
   }
 
-  if (current && current.window === window) {
-    if (current.count >= maxRpm) return { allowed: false, remaining: 0 };
-    current.count += 1;
-    rateLimitMap.set(userId, current);
-    return { allowed: true, remaining: maxRpm - current.count };
-  } else {
-    rateLimitMap.set(userId, { count: 1, window });
-    return { allowed: true, remaining: maxRpm - 1 };
-  }
+  const count = rateLimitMap.get(userId) || 0;
+  if (count >= maxRpm) return { allowed: false, remaining: 0 };
+
+  const newCount = count + 1;
+  rateLimitMap.set(userId, newCount);
+  return { allowed: true, remaining: maxRpm - newCount };
 }
 
 /**

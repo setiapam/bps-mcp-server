@@ -42,7 +42,7 @@ export async function handleAuthorize(
       // Complete authorization — store BPS API key in props
       const { redirectTo } = await oauthHelpers.completeAuthorization({
         request: authRequest,
-        userId: `bps_${hashKey(apiKey)}`,
+        userId: `bps_${await hashKey(apiKey)}`,
         metadata: { createdAt: Date.now() },
         scope: authRequest.scope,
         props: { bpsApiKey: apiKey },
@@ -64,7 +64,7 @@ export async function handleAuthorize(
   return new Response("Method not allowed", { status: 405 });
 }
 
-async function validateBpsApiKey(apiKey: string): Promise<boolean> {
+export async function validateBpsApiKey(apiKey: string): Promise<boolean> {
   try {
     const url = `https://webapi.bps.go.id/v1/api/domain/type/all/key/${apiKey}/`;
     const res = await fetch(url, {
@@ -89,16 +89,36 @@ async function validateBpsApiKey(apiKey: string): Promise<boolean> {
   }
 }
 
-function hashKey(key: string): string {
-  // Simple hash for user ID — not for security, just uniqueness
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
+export async function hashKey(key: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(key);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (match) => {
+    const escapeMap: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#x27;",
+    };
+    return escapeMap[match];
+  });
 }
 
 function renderLoginPage(authRequest: AuthRequest, error?: string): Response {
+  const safeClientId = escapeHtml(authRequest.clientId);
+  const safeResponseType = escapeHtml(authRequest.responseType);
+  const safeRedirectUri = escapeHtml(authRequest.redirectUri);
+  const safeScope = escapeHtml(authRequest.scope.join(" "));
+  const safeState = escapeHtml(authRequest.state);
+  const safeCodeChallenge = authRequest.codeChallenge ? escapeHtml(authRequest.codeChallenge) : "";
+  const safeCodeChallengeMethod = authRequest.codeChallengeMethod ? escapeHtml(authRequest.codeChallengeMethod) : "";
+  const safeError = error ? escapeHtml(error) : "";
+
   const html = `<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -127,18 +147,18 @@ function renderLoginPage(authRequest: AuthRequest, error?: string): Response {
     <h1>🇮🇩 BPS MCP Server</h1>
     <p class="subtitle">Masukkan API key BPS Anda untuk mengotorisasi akses data statistik Indonesia.</p>
     
-    <div class="client">Mengotorisasi untuk: <strong>${authRequest.clientId}</strong></div>
+    <div class="client">Mengotorisasi untuk: <strong>${safeClientId}</strong></div>
     
-    ${error ? `<div class="error">${error}</div>` : ""}
+    ${safeError ? `<div class="error">${safeError}</div>` : ""}
     
     <form method="POST">
-      <input type="hidden" name="response_type" value="${authRequest.responseType}">
-      <input type="hidden" name="client_id" value="${authRequest.clientId}">
-      <input type="hidden" name="redirect_uri" value="${authRequest.redirectUri}">
-      <input type="hidden" name="scope" value="${authRequest.scope.join(" ")}">
-      <input type="hidden" name="state" value="${authRequest.state}">
-      ${authRequest.codeChallenge ? `<input type="hidden" name="code_challenge" value="${authRequest.codeChallenge}">` : ""}
-      ${authRequest.codeChallengeMethod ? `<input type="hidden" name="code_challenge_method" value="${authRequest.codeChallengeMethod}">` : ""}
+      <input type="hidden" name="response_type" value="${safeResponseType}">
+      <input type="hidden" name="client_id" value="${safeClientId}">
+      <input type="hidden" name="redirect_uri" value="${safeRedirectUri}">
+      <input type="hidden" name="scope" value="${safeScope}">
+      <input type="hidden" name="state" value="${safeState}">
+      ${safeCodeChallenge ? `<input type="hidden" name="code_challenge" value="${safeCodeChallenge}">` : ""}
+      ${safeCodeChallengeMethod ? `<input type="hidden" name="code_challenge_method" value="${safeCodeChallengeMethod}">` : ""}
       
       <label for="api_key">BPS API Key</label>
       <input type="text" id="api_key" name="api_key" placeholder="Masukkan API key BPS Anda" required autocomplete="off">

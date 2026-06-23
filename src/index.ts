@@ -27,7 +27,7 @@ async function main(): Promise<void> {
 
     const auth = createAuthProvider(config);
     const cache = config.cacheEnabled ? new InMemoryCache(config.cacheMaxEntries) : null;
-    const store = new FileStore();
+    const store = new FileStore(undefined, config.apiKey);
     const { server } = createServer(config, auth, cache, store, pkg.version);
 
     await startStdioTransport(server);

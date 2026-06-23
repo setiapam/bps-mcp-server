@@ -21,9 +21,11 @@ export class FileStore implements IPersistentStore {
   private dirty = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly workerUrl: string;
+  private readonly apiKey: string | null;
 
-  constructor(workerUrl?: string) {
+  constructor(workerUrl?: string, apiKey?: string) {
     this.workerUrl = workerUrl || process.env.BPS_WORKER_URL || DEFAULT_WORKER_URL;
+    this.apiKey = apiKey || process.env.BPS_API_KEY || null;
     this.load();
     this.syncFromWorker();
   }
@@ -44,7 +46,12 @@ export class FileStore implements IPersistentStore {
   /** Pull learned data from Worker (background, non-blocking). */
   private syncFromWorker(): void {
     const pull = async (endpoint: string) => {
+      const headers: Record<string, string> = {};
+      if (this.apiKey) {
+        headers["x-bps-api-key"] = this.apiKey;
+      }
       const res = await fetch(`${this.workerUrl}${endpoint}`, {
+        headers,
         signal: AbortSignal.timeout(SYNC_TIMEOUT_MS),
       });
       if (!res.ok) return;
@@ -64,10 +71,14 @@ export class FileStore implements IPersistentStore {
 
   /** Push a single entry to Worker (background, fire-and-forget). */
   private pushToWorker(key: string, value: string): void {
+    if (!this.apiKey) return;
     const endpoint = key.startsWith("period:") ? "/api/learned-periods" : "/api/learned-vars";
     fetch(`${this.workerUrl}${endpoint}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-bps-api-key": this.apiKey,
+      },
       body: JSON.stringify({ key, value }),
       signal: AbortSignal.timeout(SYNC_TIMEOUT_MS),
     }).catch(() => {

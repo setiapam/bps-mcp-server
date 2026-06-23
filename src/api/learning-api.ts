@@ -1,12 +1,54 @@
+import { validateBpsApiKey, hashKey } from "../auth/oauth-handler.js";
+
 const LEARN_PREFIX = "learn:";
 const PERIOD_PREFIX = "learn:period:";
 const JSON_HEADERS = { "Content-Type": "application/json" };
+
+async function validateAndCacheApiKey(apiKey: string, kv: KVNamespace): Promise<boolean> {
+  const hash = await hashKey(apiKey);
+  const cacheKey = `valid-key:${hash}`;
+
+  try {
+    const cached = await kv.get(cacheKey);
+    if (cached === "true") return true;
+    if (cached === "false") return false;
+  } catch {
+    // Ignore cache get errors
+  }
+
+  const isValid = await validateBpsApiKey(apiKey);
+
+  try {
+    // Cache validation result: 7 days for valid, 1 hour for invalid keys
+    await kv.put(cacheKey, String(isValid), { expirationTtl: isValid ? 7 * 24 * 3600 : 3600 });
+  } catch {
+    // Ignore cache write errors
+  }
+
+  return isValid;
+}
 
 /**
  * Handles /api/learned-vars and /api/learned-periods endpoints.
  * GET → return all entries; POST → add/update a single entry.
  */
 export async function handleLearningApi(request: Request, kv: KVNamespace): Promise<Response> {
+  const apiKey = request.headers.get("x-bps-api-key");
+  if (!apiKey || apiKey.length < 20) {
+    return new Response(JSON.stringify({ error: "Unauthorized: Missing or invalid BPS API key" }), {
+      status: 401,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  const isValid = await validateAndCacheApiKey(apiKey, kv);
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: "Unauthorized: Invalid BPS API key" }), {
+      status: 401,
+      headers: JSON_HEADERS,
+    });
+  }
+
   const url = new URL(request.url);
   const path = url.pathname;
 
