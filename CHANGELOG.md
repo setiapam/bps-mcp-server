@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/setiapam/bps-mcp-server/compare/v0.15.5...v0.16.0) (2026-06-23)
+
+
+### Features
+
+* implement dynamic routing fallback and test-waf diagnostic route ([ff90d04](https://github.com/setiapam/bps-mcp-server/commit/ff90d048b085362ddbf0eb21d4ff6e945156d533))
+
 ## [0.15.5](https://github.com/setiapam/bps-mcp-server/compare/v0.15.4...v0.15.5) (2026-06-23)
 
 
