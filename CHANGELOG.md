@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.4](https://github.com/setiapam/bps-mcp-server/compare/v0.16.3...v0.16.4) (2026-11-14)
+
+
+### Bug Fixes
+
+* align BPS API schemas and make data tools reliable ([98fc4c6](https://github.com/setiapam/bps-mcp-server/commit/98fc4c6f95cf4cf1a1c429672f4d10788c12a07c))
+
 ## [0.16.3](https://github.com/setiapam/bps-mcp-server/compare/v0.16.2...v0.16.3) (2026-06-23)
 
 
