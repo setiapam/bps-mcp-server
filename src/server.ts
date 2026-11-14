@@ -52,7 +52,7 @@ export function createServer(
   registerCensusTools(server, client);
   registerCsaTools(server, client);
   registerNewsTools(server, client);
-  registerGlossaryTools(server, client);
+  registerGlossaryTools(server, client, allStatsClient);
 
   // Search tools — WebAPI with AllStats fallback
   registerSearchTools(server, client, allStatsClient);

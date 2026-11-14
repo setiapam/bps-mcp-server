@@ -75,8 +75,8 @@ export function registerResources(
     { description: "Daftar subjek statistik untuk domain/wilayah tertentu" },
     async (uri, variables) => {
       const domain = firstValue(variables.domain);
-      const result = await client.listSubjects(domain);
-      const lines = result.data.map(
+      const subjects = await client.listAllSubjects(domain);
+      const lines = subjects.map(
         (s) => `${s.sub_id}\t${s.title}${s.ntabel ? ` (${s.ntabel} tabel)` : ""}`
       );
       return {

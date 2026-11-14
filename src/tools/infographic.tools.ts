@@ -4,6 +4,7 @@ import type { BpsClient } from "../client/bps-client.js";
 import { formatList } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { stripHtml } from "../utils/html.js";
 
 export function registerInfographicTools(server: McpServer, client: BpsClient): void {
   server.tool(
@@ -20,7 +21,10 @@ export function registerInfographicTools(server: McpServer, client: BpsClient): 
         const pageInfo = result.page ? `\n\n*Halaman ${result.page.page} dari ${result.page.pages} (total: ${result.page.total})*` : "";
         const text = formatList(
           result.data,
-          (inf) => `**${inf.title.replace(/\(\d\)\d{4}-\d{2}-\d{2}$/, "").trim()}** (ID: ${inf.inf_id}) — ${inf.date}`,
+          (inf) => {
+            const date = inf.date ? ` — ${inf.date}` : "";
+            return `**${inf.title.replace(/\(\d\)\d{4}-\d{2}-\d{2}$/, "").trim()}** (ID: ${inf.inf_id})${date}`;
+          },
           "Daftar Infografis BPS"
         ) + pageInfo;
         return { content: [{ type: "text", text }] };
@@ -42,18 +46,12 @@ export function registerInfographicTools(server: McpServer, client: BpsClient): 
         const inf = await client.getInfographic(domain, id);
         const cleanTitle = inf.title.replace(/\(\d\)\d{4}-\d{2}-\d{2}$/, "").trim();
 
-        // Strip HTML tags from description
-        const cleanDesc = inf.desc
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&amp;/g, "&")
-          .trim();
+        const cleanDesc = stripHtml(inf.desc);
 
         const lines = [
           `## ${cleanTitle}`,
           "",
-          `**Tanggal:** ${inf.date}`,
+          ...(inf.date ? [`**Tanggal:** ${inf.date}`] : []),
           "",
           "### Deskripsi",
           cleanDesc,

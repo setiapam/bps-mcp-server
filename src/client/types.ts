@@ -21,8 +21,8 @@ export interface BpsSubject {
   title: string;
   subcat_id?: number;
   subcat?: string;
-  ntabel?: number;
-  nvar?: number;
+  ntabel?: number | null;
+  nvar?: number | null;
 }
 
 /** Subject Category */
@@ -44,33 +44,56 @@ export interface BpsVariable {
   graph_name?: string;
 }
 
-/** Vertical Variable */
+/** Vertical Variable (list endpoints use `kode_ver_id`, data endpoints use `val`) */
 export interface BpsVerticalVariable {
-  kode_vervar: number;
-  label_vervar: string;
-  group_vervar: number;
-  name_group_vervar: string;
+  kode_vervar?: number;
+  kode_ver_id?: number;
+  label_vervar?: string;
+  vervar?: string;
+  group_vervar?: number;
+  group_ver_id?: number;
+  name_group_vervar?: string;
+  name_group_ver_id?: string;
+  val?: number | string;
+  label?: string;
 }
 
 /** Derived Variable */
 export interface BpsDerivedVariable {
-  kode_turvar: number;
-  label_turvar: string;
-  group_turvar: number;
-  name_group_turvar: string;
+  kode_turvar?: number;
+  kode_tur_id?: number;
+  turvar_id?: number;
+  label_turvar?: string;
+  turvar?: string;
+  group_turvar?: number;
+  group_tur_id?: number;
+  group_turvar_id?: number;
+  name_group_turvar?: string;
+  name_group_tur_id?: string;
+  val?: number | string;
+  label?: string;
 }
 
-/** Period */
+/** Period (list endpoints use `th`, data endpoints use `label`) */
 export interface BpsPeriod {
-  th_id: number;
-  th_name: string;
-  val: number;
+  th_id?: number;
+  th_name?: string;
+  th?: string;
+  val?: number | string;
+  label?: string;
+  var_id?: number;
+  var_name?: string;
 }
 
 /** Derived Period */
 export interface BpsDerivedPeriod {
-  turth_id: number;
-  turth_name: string;
+  turth_id?: number;
+  turth_name?: string;
+  turth?: string;
+  group_turth_id?: number;
+  name_group_turth?: string;
+  val?: number | string;
+  label?: string;
 }
 
 /** Unit */
@@ -101,7 +124,7 @@ export interface BpsStaticTable {
   title: string;
   subj_id: number;
   subj?: string;
-  updt_date: string;
+  updt_date: string | null;
   size: string;
   excel?: string;
 }
@@ -113,7 +136,7 @@ export interface BpsStaticTableDetail {
   subj_id: number;
   subj?: string;
   table: string; // HTML table content
-  updt_date: string;
+  updt_date: string | null;
   size: string;
   excel?: string;
 }
@@ -152,7 +175,7 @@ export interface BpsStrategicIndicator {
   name?: string;
   data_source?: string;
   value: number | string;
-  unit: string;
+  unit: string | null;
   category?: number;
   hash_id?: string;
   periode: string;
@@ -169,7 +192,7 @@ export interface BpsInfographic {
   inf_id: number;
   title: string;
   img: string;
-  date: string;
+  date: string | null;
   desc: string;
   category: number;
   dl: string;
@@ -256,7 +279,8 @@ export interface BpsCsaTable {
   id_subject: number;
   subject: string;
   id_subcat: number;
-  subcat: string;
+  subcat?: string;
+  subcat_name?: string;
   tablesource: string;
   last_update: string;
 }

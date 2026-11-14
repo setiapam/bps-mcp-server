@@ -23,6 +23,47 @@ const TRADE_PATH_PARAMS = new Set(["sumber", "kodehs", "jenishs", "tahun", "peri
 const INTEROP_PATH_PARAMS = new Set(["datasource", "id", "kegiatan", "topik", "wilayah", "key"]);
 
 /**
+ * BPS accepts multiple values separated by semicolons (not commas) and ranges
+ * with colons. Users naturally type commas, so normalize them before building
+ * the path. See the API error: "'th' parameter is required (integer),
+ * separated by colon (:) for range or semicolon (;) for multiple values".
+ */
+const MULTI_VALUE_PARAMS = new Set([
+  "var",
+  "th",
+  "turvar",
+  "vervar",
+  "turth",
+  "subject",
+  "subcat",
+  "kegiatan",
+  "topik",
+  "wilayah",
+]);
+
+export function normalizePathParam(key: string, value: string | number): string {
+  let normalized = String(value).trim();
+  if (MULTI_VALUE_PARAMS.has(key)) {
+    normalized = normalized
+      .replace(/\s*[,;]\s*/g, ";")
+      .replace(/;+/g, ";")
+      .replace(/^;|;$/g, "");
+  }
+  return normalized;
+}
+
+/**
+ * Encode a path segment while leaving the BPS multi-value (`;`) and range (`:`)
+ * separators intact. `encodeURIComponent` would turn them into `%3B`/`%3A`,
+ * which the API does not accept.
+ */
+export function encodePathValue(value: string | number): string {
+  return encodeURIComponent(String(value))
+    .replace(/%3B/gi, ";")
+    .replace(/%3A/gi, ":");
+}
+
+/**
  * Build a list URL: /api/list/model/{model}/param1/val1/.../key/{key}/?queryparams
  */
 export function buildListUrl(
@@ -36,7 +77,7 @@ export function buildListUrl(
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
     if (PATH_PARAMS.has(key)) {
-      path += `/${key}/${encodeURIComponent(String(value))}`;
+      path += `/${key}/${encodePathValue(normalizePathParam(key, value))}`;
     } else {
       queryParams[key] = String(value);
     }
@@ -67,7 +108,7 @@ export function buildViewUrl(
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
     if (PATH_PARAMS.has(key)) {
-      path += `/${key}/${encodeURIComponent(String(value))}`;
+      path += `/${key}/${encodePathValue(normalizePathParam(key, value))}`;
     } else {
       queryParams[key] = String(value);
     }
@@ -94,7 +135,7 @@ export function buildDomainUrl(
 
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
-    path += `/${key}/${encodeURIComponent(String(value))}`;
+    path += `/${key}/${encodePathValue(normalizePathParam(key, value))}`;
   }
 
   if (!path.endsWith("/")) path += "/";
@@ -114,7 +155,7 @@ export function buildTradeUrl(
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
     if (TRADE_PATH_PARAMS.has(key)) {
-      path += `/${key}/${encodeURIComponent(String(value))}`;
+      path += `/${key}/${encodePathValue(normalizePathParam(key, value))}`;
     } else {
       queryParams[key] = String(value);
     }
@@ -144,7 +185,7 @@ export function buildInteropUrl(
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
     if (INTEROP_PATH_PARAMS.has(key)) {
-      path += `/${key}/${encodeURIComponent(String(value))}`;
+      path += `/${key}/${encodePathValue(normalizePathParam(key, value))}`;
     } else {
       queryParams[key] = String(value);
     }

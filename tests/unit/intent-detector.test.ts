@@ -80,6 +80,23 @@ describe("Intent Detector", () => {
       expect(result.extractedParams.region1).toBe("jawa timur");
       expect(result.extractedParams.region2).toBe("jawa barat");
     });
+
+    it("should extract regions from 'bandingkan X dan Y' without the indicator", () => {
+      const result = detectIntent("bandingkan kemiskinan jawa timur dan jawa barat", "Indonesia");
+      expect(result.intent).toBe("comparison");
+      expect(result.extractedParams.region1).toBe("jawa timur");
+      expect(result.extractedParams.region2).toBe("jawa barat");
+    });
+
+    it("should detect 'perbandingan' as a comparison intent", () => {
+      const result = detectIntent("perbandingan pengangguran antar provinsi di jawa", "Indonesia");
+      expect(result.intent).toBe("comparison");
+    });
+
+    it("should not treat a comma-separated list of topics as a comparison", () => {
+      const result = detectIntent("data penduduk, kemiskinan, dan pengangguran", "Indonesia");
+      expect(result.intent).not.toBe("comparison");
+    });
   });
 
   describe("generateResultHints", () => {

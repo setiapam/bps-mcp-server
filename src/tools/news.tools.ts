@@ -4,6 +4,7 @@ import type { BpsClient } from "../client/bps-client.js";
 import { formatList } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { stripHtml } from "../utils/html.js";
 
 export function registerNewsTools(server: McpServer, client: BpsClient): void {
   server.tool(
@@ -39,13 +40,7 @@ export function registerNewsTools(server: McpServer, client: BpsClient): void {
     async ({ domain, id }) => {
       try {
         const detail = await client.getNews(domain, id);
-        const cleanNews = detail.news
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .replace(/&nbsp;/g, " ")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&amp;/g, "&")
-          .trim();
+        const cleanNews = stripHtml(detail.news);
 
         const lines = [
           `## ${detail.title}`,

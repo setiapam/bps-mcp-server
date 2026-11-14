@@ -28,8 +28,8 @@ function formatSearchResults(res: AllStatsSearchResponse): string {
     lines.push(`### ${i + 1}. ${r.title}`);
     if (r.description) lines.push(`> ${r.description}`);
     lines.push("");
-    lines.push(`- **Tipe:** ${r.contentType}`);
-    lines.push(`- **Sumber:** ${r.domain}`);
+    if (r.contentType) lines.push(`- **Tipe:** ${r.contentType}`);
+    if (r.domain) lines.push(`- **Sumber:** ${r.domain}`);
     if (r.url) lines.push(`- **URL:** ${r.url}`);
     if (r.deepSearchId) {
       lines.push(
@@ -52,9 +52,17 @@ function formatDeepSearchResults(res: AllStatsDeepSearchResponse): string {
   const lines: string[] = [];
   const pub = res.publication;
 
+  if (res.notice) {
+    lines.push(`## Deep Search: "${res.query}"`);
+    lines.push("");
+    lines.push(`> ${res.notice}`);
+    if (pub.publicationUrl) lines.push("", `**Publikasi:** ${pub.publicationUrl}`);
+    return lines.join("\n");
+  }
+
   lines.push(`## Deep Search: "${res.query}"`);
   lines.push("");
-  lines.push(`### Publikasi: ${pub.title}`);
+  lines.push(`### Publikasi: ${pub.title || "(tidak diketahui)"}`);
   if (pub.publisher) lines.push(`**Penerbit:** ${pub.publisher}`);
   if (pub.publicationUrl) lines.push(`**URL:** ${pub.publicationUrl}`);
   lines.push("");

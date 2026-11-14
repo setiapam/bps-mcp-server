@@ -1,5 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { ApiKeyProvider } from "./auth/api-key.provider.js";
+import { hashKey } from "./auth/oauth-handler.js";
 import { loadWorkerConfig } from "./config/worker-config.js";
 import { createServer } from "./server.js";
 import { KVCache } from "./services/kv-cache.js";
@@ -12,7 +13,6 @@ let currentWindow = 0;
 const rateLimitMap = new Map<string, number>();
 
 async function checkRateLimit(
-  _kv: KVNamespace,
   userId: string,
   maxRpm: number
 ): Promise<{ allowed: boolean; remaining: number }> {
@@ -55,8 +55,10 @@ export const McpHandler = {
 
     // Rate limiting
     const maxRpm = parseInt(env.RATE_LIMIT_RPM || "", 10) || 60;
-    const userId = `key:${bpsApiKey.substring(0, 8)}`;
-    const { allowed, remaining } = await checkRateLimit(env.BPS_CACHE, userId, maxRpm);
+    // Hash the full key instead of using its first 8 characters: short
+    // prefixes collide, which would share a rate-limit bucket between users.
+    const userId = `key:${(await hashKey(bpsApiKey)).slice(0, 16)}`;
+    const { allowed, remaining } = await checkRateLimit(userId, maxRpm);
     if (!allowed) {
       return new Response(
         JSON.stringify({ error: "Too many requests. Try again in 1 minute." }),

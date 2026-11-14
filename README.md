@@ -20,9 +20,10 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 - **5 MCP Prompts** — template analisis data siap pakai
 - **Domain resolver** dengan fuzzy matching (ketik "Jatim" → Jawa Timur)
 - **Data formatter** yang mengubah raw BPS data menjadi format mudah dibaca
-- **Persistent learning store** — auto-learn variable mappings, survive restart
+- **Persistent learning store** — auto-learn variable mappings, survive restart (local by default; remote sync opt-in)
 - **In-memory cache** dengan TTL per tipe data
-- **Rate limiting** — 60 req/menit per API key (remote worker)
+- **Rate limiting** — 60 req/menit per API key (remote worker) + retry otomatis saat BPS membalas HTTP 429
+- **Year-aware resolver** — tidak lagi diam-diam mengembalikan data tahun lama saat tahun yang diminta tidak tersedia
 - **Bilingual** — error messages dan response mendukung bahasa Indonesia dan Inggris
 - **Atribusi BPS** otomatis di setiap response (sesuai ToU)
 - **BYOK** (Bring Your Own Key) — setiap user wajib menggunakan API key BPS sendiri
@@ -219,6 +220,8 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `search` | Pencarian lintas tipe (WebAPI + AllStats fallback) |
 | `cache_clear` | Bersihkan cache |
 
+> **Catatan parameter BPS:** `get_trade_data` menggunakan `hs_type` `1` (2-digit) atau `2` (full-digit), dan `period` `1` (bulanan) atau `2` (tahunan). Untuk data multi-tahun, pisahkan tahun dengan koma; server memecahnya menjadi maksimal 3 periode per request sesuai batas BPS.
+
 ### AllStats Search Tools (2)
 
 | Tool | Deskripsi |
@@ -311,6 +314,19 @@ AI menggunakan: find_data(query="pemeluk agama", region="Kab Jombang")
 | `BPS_CACHE_ENABLED` | `true` | Aktifkan cache |
 | `BPS_CACHE_MAX_ENTRIES` | `500` | Maks entri cache |
 | `BPS_LOG_LEVEL` | `info` | Level log: debug/info/warn/error |
+| `BPS_ALLSTATS_BASE_URL` | `https://searchengine.web.bps.go.id` | Base URL AllStats Search |
+| `BPS_WORKER_URL` | (kosong) | **Opt-in.** URL worker untuk sinkronisasi learning lintas mesin. Jika diisi, API key Anda dikirim ke server tersebut. |
+
+### Catatan Rate Limit BPS
+
+BPS tidak mempublikasikan angka rate limit yang tetap. Batas dapat berbeda menurut token, endpoint, periode waktu, dan alamat IP (lihat [Ketentuan Penggunaan WebAPI BPS](https://webapi.bps.go.id/documentation)). Dalam pengujian, puluhan request cepat berturut-turut memicu `HTTP 429 Request rate limit exceeded`, lalu pulih setelah beberapa saat. Laporan komunitas (tidak resmi) menyebut sekitar **2 request/detik** dan sekitar **100 request/hari per key**; angka itu bisa berubah.
+
+Server ini mengurangi risiko 429 dengan:
+
+- cache respons per tipe data dan deduplikasi request identik;
+- retry otomatis untuk 429/408/5xx dengan backoff (2s, 4s, 8s);
+- pemecahan otomatis request multi-tahun karena BPS membatasi **maksimal 3 periode per request**;
+- pesan error yang menyarankan menunggu 1–2 menit jika 429 tetap terjadi.
 
 ## Development
 
@@ -326,7 +342,7 @@ npm install
 
 ```bash
 npm run build          # Compile TypeScript
-npm run test:unit      # Run unit tests (105+ tests)
+npm run test:unit      # Run unit tests (130+ tests)
 npm run lint           # ESLint check
 npm run typecheck      # TypeScript type check
 ```

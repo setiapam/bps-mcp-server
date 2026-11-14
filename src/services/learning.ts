@@ -1,6 +1,6 @@
 import type { IPersistentStore } from "./persistent-store.js";
 import { logger } from "../utils/logger.js";
-import stopwords from "stopwords-iso";
+import stopwords from "stopwords-iso" with { type: "json" };
 
 /** Learned variable entry stored in persistent store. */
 export interface LearnedVar {
@@ -8,6 +8,8 @@ export interface LearnedVar {
   title: string;
   sub_name: string;
   unit?: string;
+  /** Domain the mapping was learned for. BPS variable IDs are domain-specific. */
+  domain?: string;
 }
 
 /** Learned period entry stored in persistent store. */
@@ -20,24 +22,23 @@ interface LearnedPeriod {
 
 const KNOWN_VARS: Record<string, LearnedVar[]> = {
   miskin: [
-    { var_id: 184, title: "Persentase Penduduk Miskin", sub_name: "Kemiskinan dan Ketimpangan" },
-    { var_id: 183, title: "Jumlah Penduduk Miskin (ribu jiwa)", sub_name: "Kemiskinan dan Ketimpangan" },
+    { var_id: 184, title: "Persentase Penduduk Miskin (P0)", sub_name: "Kemiskinan dan Ketimpangan" },
+    { var_id: 183, title: "Jumlah Penduduk Miskin Menurut Wilayah", sub_name: "Kemiskinan dan Ketimpangan", unit: "Juta Jiwa" },
   ],
   garis_kemiskinan: [
-    { var_id: 195, title: "Garis Kemiskinan", sub_name: "Kemiskinan dan Ketimpangan" }
+    { var_id: 195, title: "Garis Kemiskinan (Rupiah/Kapita/Bulan)", sub_name: "Kemiskinan dan Ketimpangan" }
   ],
   pengangguran: [
-    { var_id: 543, title: "Tingkat Pengangguran Terbuka (%)", sub_name: "Tenaga Kerja" },
-    { var_id: 674, title: "Jumlah Pengangguran (jiwa)", sub_name: "Tenaga Kerja" },
+    { var_id: 543, title: "Tingkat Pengangguran Terbuka Menurut Provinsi", sub_name: "Tenaga Kerja", unit: "Persen" },
   ],
   ipm: [
     { var_id: 413, title: "[Metode Baru] Indeks Pembangunan Manusia (IPM)", sub_name: "IPM" },
   ],
   gini: [
-    { var_id: 98, title: "Gini Rasio", sub_name: "Kemiskinan dan Ketimpangan" },
+    { var_id: 98, title: "Gini Ratio Menurut Provinsi dan Daerah", sub_name: "Kemiskinan dan Ketimpangan" },
   ],
   penduduk: [
-    { var_id: 1452, title: "Jumlah Penduduk (ribu jiwa)", sub_name: "Kependudukan" },
+    { var_id: 2781, title: "Jumlah Penduduk menurut Provinsi dan Jenis Kelamin", sub_name: "Kependudukan" },
   ],
 };
 
@@ -194,6 +195,20 @@ export async function lookupVar(
   if (stored) {
     try {
       const parsed = JSON.parse(stored) as LearnedVar;
+      // Legacy entries (before `domain` was stored) are only safe for the
+      // national domain. Provincial variable IDs are domain-specific; reusing a
+      // national ID for a province can point to a completely different table.
+      if (parsed.domain === undefined) {
+        if (domain !== "0000") {
+          logger.debug(`lookupVar: discarding legacy provincial mapping "${storeKey}"`);
+          await store.delete(storeKey);
+          return null;
+        }
+      } else if (parsed.domain !== domain) {
+        logger.debug(`lookupVar: discarding cross-domain mapping "${storeKey}"`);
+        await store.delete(storeKey);
+        return null;
+      }
       logger.debug(`lookupVar: store hit "${storeKey}" → var_id=${parsed.var_id}`);
       return parsed;
     } catch { /* ignore corrupt entry */ }
@@ -215,7 +230,14 @@ export async function learnVar(
   const normalized = normalizeKeyword(query);
   const canonical = resolveCanonical(normalized);
   const key = `${canonical}:${domain}`;
-  await store.set(key, JSON.stringify(varData));
+  const payload: LearnedVar = {
+    var_id: varData.var_id,
+    title: varData.title,
+    sub_name: varData.sub_name,
+    unit: varData.unit,
+    domain,
+  };
+  await store.set(key, JSON.stringify(payload));
   logger.debug(`learnVar: saved "${key}" → var_id=${varData.var_id}`);
 }
 

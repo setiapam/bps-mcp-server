@@ -138,8 +138,7 @@ const KNOWN_VARS: Record<string, { var_id: number; label: string }[]> = {
   kemiskinan:    [{ var_id: 184, label: "Persentase Penduduk Miskin" }],
 
   // Pengangguran
-  pengangguran:  [{ var_id: 543, label: "Tingkat Pengangguran Terbuka (%)" },
-                  { var_id: 674, label: "Jumlah Pengangguran" }],
+  pengangguran:  [{ var_id: 543, label: "Tingkat Pengangguran Terbuka (%)" }],
   tpt:           [{ var_id: 543, label: "Tingkat Pengangguran Terbuka (%)" }],
 
   // IPM
@@ -149,7 +148,7 @@ const KNOWN_VARS: Record<string, { var_id: number; label: string }[]> = {
   gini:          [{ var_id: 98, label: "Gini Rasio" }],
 
   // Kependudukan
-  penduduk:      [{ var_id: 1452, label: "Jumlah Penduduk" }],
+  penduduk:      [{ var_id: 2781, label: "Jumlah Penduduk menurut Provinsi dan Jenis Kelamin" }],
 
   // Agama — tidak ada var_id stabil, gunakan static table fallback
   // Inflasi — tidak ada var_id stabil, gunakan strategic indicators

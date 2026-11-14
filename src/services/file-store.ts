@@ -9,12 +9,12 @@ const STORE_FILE = join(STORE_DIR, "learned-vars.json");
 const FLUSH_DELAY_MS = 5_000;
 const SYNC_TIMEOUT_MS = 5_000;
 
-const DEFAULT_WORKER_URL = "https://bps-mcp-server.murphi.my.id";
-
 /**
  * File-based persistent store for stdio transport.
  * Reads from disk on init, writes debounced.
- * Syncs with remote Worker for shared learning.
+ *
+ * Remote sync is opt-in: set BPS_WORKER_URL explicitly. The server will not
+ * send your BPS API key to a third-party host by default.
  */
 export class FileStore implements IPersistentStore {
   private data: Record<string, string> = {};
@@ -24,10 +24,12 @@ export class FileStore implements IPersistentStore {
   private readonly apiKey: string | null;
 
   constructor(workerUrl?: string, apiKey?: string) {
-    this.workerUrl = workerUrl || process.env.BPS_WORKER_URL || DEFAULT_WORKER_URL;
+    this.workerUrl = workerUrl || process.env.BPS_WORKER_URL || "";
     this.apiKey = apiKey || process.env.BPS_API_KEY || null;
     this.load();
-    this.syncFromWorker();
+    if (this.workerUrl && this.apiKey) {
+      this.syncFromWorker();
+    }
   }
 
   private load(): void {
@@ -71,7 +73,7 @@ export class FileStore implements IPersistentStore {
 
   /** Push a single entry to Worker (background, fire-and-forget). */
   private pushToWorker(key: string, value: string): void {
-    if (!this.apiKey) return;
+    if (!this.workerUrl || !this.apiKey) return;
     const endpoint = key.startsWith("period:") ? "/api/learned-periods" : "/api/learned-vars";
     fetch(`${this.workerUrl}${endpoint}`, {
       method: "POST",
@@ -123,6 +125,15 @@ export class FileStore implements IPersistentStore {
       this.dirty = true;
       this.scheduleFlush();
     }
+  }
+
+  /** Flush pending changes synchronously (called on process exit). */
+  flushNow(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flush();
   }
 
   async getAll(): Promise<Record<string, string>> {

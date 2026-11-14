@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import { formatList } from "../services/data-formatter.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { formatUnit } from "../client/fields.js";
 
 export function registerReferenceTools(server: McpServer, client: BpsClient): void {
   server.tool(
@@ -23,7 +24,8 @@ Untuk data historis multi-tahun, gunakan find_data atau get_dynamic_data.`,
           result.data,
           (ind) => {
             const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
-            let desc = `**${ind.title}** (ID: ${ind.indicator_id}) — **${val} ${ind.unit}** (${ind.periode})`;
+            const unit = formatUnit(ind.unit);
+            let desc = `**${ind.title}** (ID: ${ind.indicator_id}) — **${val}${unit ? ` ${unit}` : ""}** (${ind.periode})`;
             if (ind.name) desc += `\n   _${ind.name}_`;
             return desc;
           },

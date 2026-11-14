@@ -1,4 +1,18 @@
 import type { BpsDynamicDataResponse, BpsVariable, BpsVerticalVariable, BpsDerivedVariable, BpsPeriod, BpsDerivedPeriod } from "../client/types.js";
+import {
+  getPeriodId,
+  getPeriodLabel,
+  getTurthId,
+  getTurthLabel,
+  getTurvarId,
+  getTurvarLabel,
+  getVariableId,
+  getVariableTitle,
+  getVariableUnit,
+  getVervarId,
+  getVervarLabel,
+  isNeutralPeriodLabel,
+} from "../client/fields.js";
 import { appendAttribution } from "./attribution.js";
 
 interface FormattedRow {
@@ -17,27 +31,35 @@ interface FormattedRow {
  * BPS datacontent keys are concatenated IDs: {vervar}{var}{turvar}{th}
  * We resolve them using the metadata arrays in the response.
  */
+export interface FormatDynamicDataOptions {
+  /** Set false when the caller appends attribution once at the end. */
+  includeAttribution?: boolean;
+}
+
 export function formatDynamicData(
   response: BpsDynamicDataResponse,
   domain: string,
-  lang: "ind" | "eng" = "ind"
+  lang: "ind" | "eng" = "ind",
+  options: FormatDynamicDataOptions = {}
 ): string {
+  const finalize = (text: string): string =>
+    options.includeAttribution === false ? text : appendAttribution(text, lang);
+
   const datacontent = response.datacontent;
   if (!datacontent || Object.keys(datacontent).length === 0) {
-    return appendAttribution(
+    return finalize(
       lang === "ind"
         ? "Tidak ada data yang ditemukan untuk parameter yang diberikan."
-        : "No data found for the given parameters.",
-      lang
+        : "No data found for the given parameters."
     );
   }
 
-  // Build lookup maps
-  const varMap = buildMap(response.var, (v) => [String(v.var_id ?? (v as unknown as Record<string, unknown>).val), v]);
-  const vervarMap = buildMap(response.vervar, (v) => [String(v.kode_vervar ?? (v as unknown as Record<string, unknown>).val), v]);
-  const turvarMap = buildMap(response.turvar, (v) => [String(v.kode_turvar ?? (v as unknown as Record<string, unknown>).val), v]);
-  const periodMap = buildMap(response.tahun, (v) => [String(v.th_id ?? (v as unknown as Record<string, unknown>).val), v]);
-  const turthMap = buildMap(response.turtahun, (v) => [String(v.turth_id ?? (v as unknown as Record<string, unknown>).val), v]);
+  // Build lookup maps (handles both list-style and data-style field names)
+  const varMap = buildMap(response.var, (v) => [getVariableId(v), v]);
+  const vervarMap = buildMap(response.vervar, (v) => [getVervarId(v), v]);
+  const turvarMap = buildMap(response.turvar, (v) => [getTurvarId(v), v]);
+  const periodMap = buildMap(response.tahun, (v) => [getPeriodId(v), v]);
+  const turthMap = buildMap(response.turtahun, (v) => [getTurthId(v), v]);
 
   // Pre-sort keys longest-first (once) for efficient matching across all datacontent entries
   const varKeys = sortedKeys(varMap);
@@ -54,7 +76,7 @@ export function formatDynamicData(
   }
 
   if (rows.length === 0) {
-    return appendAttribution("Data tersedia tetapi tidak dapat di-parse.", lang);
+    return finalize("Data tersedia tetapi tidak dapat di-parse.");
   }
 
   // Format as text table
@@ -84,7 +106,6 @@ export function formatDynamicData(
     // Build a readable table
     const hasVervar = varRows.some((r) => r.verticalVariable && r.verticalVariable !== "Tidak ada");
     const hasTurvar = varRows.some((r) => r.derivedVariable && r.derivedVariable !== "Tidak ada");
-
     // Header
     const headers: string[] = [];
     if (hasVervar) headers.push("Kategori");
@@ -95,8 +116,13 @@ export function formatDynamicData(
     lines.push("| " + headers.join(" | ") + " |");
     lines.push("| " + headers.map(() => "---").join(" | ") + " |");
 
-    // Sort rows by period
-    varRows.sort((a, b) => a.period.localeCompare(b.period));
+    // Sort by year, preserving the API's order within a year (months/semesters).
+    varRows.sort((a, b) => {
+      const yearA = Number(a.period.match(/\d{4}/)?.[0] ?? 0);
+      const yearB = Number(b.period.match(/\d{4}/)?.[0] ?? 0);
+      if (yearA && yearB && yearA !== yearB) return yearA - yearB;
+      return a.period.localeCompare(b.period);
+    });
 
     const MAX_TABLE_ROWS = 150;
     const totalRows = varRows.length;
@@ -111,7 +137,10 @@ export function formatDynamicData(
     for (const row of rowsToRender) {
       const cols: string[] = [];
       if (hasVervar) cols.push(row.verticalVariable ?? "-");
-      cols.push(row.period);
+      const period = row.derivedPeriod && !isNeutralPeriodLabel(row.derivedPeriod)
+        ? `${row.period} (${row.derivedPeriod})`
+        : row.period;
+      cols.push(period);
       if (hasTurvar) cols.push(row.derivedVariable ?? "-");
       cols.push(formatValue(row.value));
       lines.push("| " + cols.join(" | ") + " |");
@@ -135,7 +164,7 @@ export function formatDynamicData(
     lines.push(`**Satuan:** ${units.join(", ")}`);
   }
 
-  return appendAttribution(lines.join("\n"), lang);
+  return finalize(lines.join("\n"));
 }
 
 /**
@@ -186,24 +215,34 @@ function resolveDatacontentKey(
         }
       }
 
-      // 3. Match period and turvar from suffix (after var_id)
+      // 3. Match period, turvar, and turth from the suffix (after var_id).
+      // The key is {vervar}{var}{turvar}{period}{turth}; matching by
+      // `includes()` is ambiguous (e.g. month "1" vs "12"), so split at the
+      // period and read the trailing turth exactly.
+      let periodKey = "";
+      let periodIndex = -1;
       for (const pk of periodKeys) {
-        if (afterVar.includes(pk)) {
+        const idx = afterVar.lastIndexOf(pk);
+        if (idx >= 0) {
+          periodKey = pk;
+          periodIndex = idx;
           matchedPeriod = periodMap.get(pk);
           break;
         }
       }
-      for (const tk of turvarKeys) {
-        if (afterVar.includes(tk)) {
-          matchedTurvar = turvarMap.get(tk);
-          break;
-        }
-      }
-      for (const ttk of turthKeys) {
-        if (afterVar.includes(ttk)) {
-          matchedTurth = turthMap.get(ttk);
-          break;
-        }
+
+      if (matchedPeriod) {
+        const turvarPart = afterVar.slice(0, periodIndex);
+        const turthPart = afterVar.slice(periodIndex + periodKey.length);
+        matchedTurvar =
+          turvarMap.get(turvarPart) ??
+          findLongestMatch(turvarPart, turvarMap, turvarKeys);
+        matchedTurth =
+          turthMap.get(turthPart) ??
+          findLongestMatch(turthPart, turthMap, turthKeys);
+      } else {
+        matchedTurvar = findLongestMatch(afterVar, turvarMap, turvarKeys);
+        matchedTurth = findLongestMatch(afterVar, turthMap, turthKeys);
       }
       break;
     }
@@ -217,13 +256,13 @@ function resolveDatacontentKey(
   if (!matchedTurth) matchedTurth = findLongestMatch(key, turthMap, turthKeys);
 
   return {
-    variable: matchedVar?.title ?? (matchedVar as unknown as Record<string, unknown>)?.label as string ?? "Data",
-    verticalVariable: matchedVervar?.label_vervar ?? (matchedVervar as unknown as Record<string, unknown>)?.label as string | undefined,
-    derivedVariable: matchedTurvar?.label_turvar ?? (matchedTurvar as unknown as Record<string, unknown>)?.label as string | undefined,
-    period: matchedPeriod?.th_name ?? (matchedPeriod as unknown as Record<string, unknown>)?.label as string ?? "N/A",
-    derivedPeriod: matchedTurth?.turth_name ?? (matchedTurth as unknown as Record<string, unknown>)?.label as string | undefined,
+    variable: getVariableTitle(matchedVar) || "Data",
+    verticalVariable: getVervarLabel(matchedVervar) || undefined,
+    derivedVariable: getTurvarLabel(matchedTurvar) || undefined,
+    period: getPeriodLabel(matchedPeriod) || "N/A",
+    derivedPeriod: getTurthLabel(matchedTurth) || undefined,
     value,
-    unit: matchedVar?.unit,
+    unit: getVariableUnit(matchedVar),
   };
 }
 
@@ -256,6 +295,7 @@ function buildMap<T, K extends string>(
   if (items) {
     for (const item of items) {
       const [key, val] = keyFn(item);
+      if (!key) continue;
       map.set(key, val);
     }
   }

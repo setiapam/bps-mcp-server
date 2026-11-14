@@ -30,6 +30,25 @@ async function main(): Promise<void> {
     const store = new FileStore(undefined, config.apiKey);
     const { server } = createServer(config, auth, cache, store, pkg.version);
 
+    // The learned-variable store writes with a debounce; flush it on shutdown
+    // so mappings are not lost when the MCP client closes the process.
+    const flushStore = (): void => {
+      try {
+        store.flushNow();
+      } catch {
+        // Best effort during shutdown.
+      }
+    };
+    process.once("exit", flushStore);
+    process.once("SIGINT", () => {
+      flushStore();
+      process.exit(0);
+    });
+    process.once("SIGTERM", () => {
+      flushStore();
+      process.exit(0);
+    });
+
     await startStdioTransport(server);
   } catch (error) {
     logger.error("Failed to start BPS MCP Server", error);

@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -15,6 +17,19 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "src/worker.ts", "src/worker-mcp.ts", "src/auth/oauth-handler.ts", "src/services/kv-cache.ts", "src/services/kv-store.ts", "src/api/learning-api.ts", "src/config/worker-config.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "src/worker.ts",
+    "src/worker-mcp.ts",
+    "src/auth/oauth-handler.ts",
+    "src/services/kv-cache.ts",
+    "src/services/kv-store.ts",
+    "src/api/learning-api.ts",
+    "src/config/worker-config.ts"
+  ]
 }

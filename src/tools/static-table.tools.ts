@@ -4,6 +4,7 @@ import type { BpsClient } from "../client/bps-client.js";
 import { formatList } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { htmlTableToMarkdown } from "../utils/html.js";
 
 export function registerStaticTableTools(server: McpServer, client: BpsClient): void {
   server.tool(
@@ -21,7 +22,7 @@ export function registerStaticTableTools(server: McpServer, client: BpsClient): 
         const result = await client.listStaticTables(domain, keyword, year, month, page);
         const text = formatList(
           result.data,
-          (t) => `**${t.title}** (ID: ${t.table_id}) — Update: ${t.updt_date}`,
+          (t) => `**${t.title}** (ID: ${t.table_id})${t.updt_date ? ` — Update: ${t.updt_date}` : ""}`,
           "Daftar Tabel Statis"
         );
         return { content: [{ type: "text", text }] };
@@ -45,9 +46,9 @@ export function registerStaticTableTools(server: McpServer, client: BpsClient): 
           `## ${detail.title}`,
           "",
           `**ID:** ${detail.table_id}`,
-          `**Update:** ${detail.updt_date}`,
+          ...(detail.updt_date ? [`**Update:** ${detail.updt_date}`] : []),
           "",
-          detail.table, // HTML table content
+          htmlTableToMarkdown(detail.table),
         ];
         if (detail.excel) {
           lines.push("", `**Download Excel:** ${detail.excel}`);

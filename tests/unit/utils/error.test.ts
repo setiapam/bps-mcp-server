@@ -71,9 +71,15 @@ describe("formatErrorForUser", () => {
   });
 
   it("should format generic BpsApiError with status code", () => {
+    const result = formatErrorForUser(new BpsApiError("server error", 500));
+    expect(result).toContain("Error dari BPS API (500)");
+    expect(result).toContain("server error");
+  });
+
+  it("should give actionable guidance for HTTP 429", () => {
     const result = formatErrorForUser(new BpsApiError("rate limited", 429));
-    expect(result).toContain("Error dari BPS API (429)");
-    expect(result).toContain("rate limited");
+    expect(result).toContain("429");
+    expect(result).toContain("Tunggu");
   });
 
   it("should format BpsApiError without status code", () => {

@@ -1,10 +1,17 @@
 import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
+import type { AllStatsClient } from "../client/allstats-client.js";
 import { formatList } from "../services/data-formatter.js";
+import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { logger } from "../utils/logger.js";
 
-export function registerGlossaryTools(server: McpServer, client: BpsClient): void {
+export function registerGlossaryTools(
+  server: McpServer,
+  client: BpsClient,
+  allStatsClient?: AllStatsClient
+): void {
   server.tool(
     "list_glossary",
     "Cari istilah di glosarium statistik BPS. Berguna untuk memahami definisi dan pengertian indikator statistik.",
@@ -33,6 +40,32 @@ export function registerGlossaryTools(server: McpServer, client: BpsClient): voi
         );
         return { content: [{ type: "text", text }] };
       } catch (error) {
+        // The WebAPI glossary endpoint currently sometimes returns HTTP 500.
+        // Fall back to AllStats' glossary index when available.
+        if (allStatsClient) {
+          try {
+            const fallback = await allStatsClient.search({
+              query: keyword || "statistik",
+              content: "glosarium",
+              domain,
+              page: page || 1,
+            });
+            if (fallback.results.length > 0) {
+              const lines = [`## Glosarium (AllStats fallback): "${keyword || "statistik"}"`, ""];
+              for (const item of fallback.results.slice(0, 10)) {
+                lines.push(`### ${item.title}`);
+                if (item.description) lines.push(`> ${item.description}`);
+                if (item.url) lines.push(`- ${item.url}`);
+                lines.push("");
+              }
+              return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
+            }
+          } catch (fallbackError) {
+            logger.debug(
+              `Glossary AllStats fallback failed: ${fallbackError instanceof Error ? fallbackError.message : "unknown"}`
+            );
+          }
+        }
         return { content: [{ type: "text", text: formatErrorForUser(error) }], isError: true };
       }
     }

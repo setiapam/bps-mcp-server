@@ -23,12 +23,11 @@ export interface IntentResult {
 // --- Intent patterns ---
 
 const COMPARISON_PATTERNS = [
-  /\b(bandingkan|banding|vs|versus|dibandingkan|dibanding|membandingkan)\b/i,
+  /\b(bandingkan|banding|perbandingan|komparasi|vs|versus|dibandingkan|dibanding|membandingkan)\b/i,
   /\b(antara)\s+(.+?)\s+(dan|dengan)\s+(.+?)(?:\s|$)/i,
   /\b(manakah?\s+(yang|lebih))\b/i,
   /\b(lebih\s+(tinggi|rendah|besar|kecil|baik|buruk))\b/i,
   /\b(perbedaan|selisih|beda)\b/i,
-  /\b(dan)\b.*\b(dan)\b/i, // "X dan Y" pattern (2+ regions)
 ];
 
 const TREND_PATTERNS = [
@@ -82,11 +81,21 @@ export function detectIntent(
     }
   }
 
-  // Extract regions for comparison
-  const comparisonMatch = query.match(/(antara)\s+(.+?)\s+(dan|dengan)\s+(.+?)(?:\s+(pada|tahun|di)|$)/i);
+  // Extract regions for comparison: "antara X dan Y", "bandingkan X dan Y",
+  // or "X vs Y". Only add them when both sides look like names.
+  const comparisonMatch =
+    query.match(/(?:antara|bandingkan|perbandingan|komparasi)\s+(.+?)\s+(?:dan|dengan|vs|versus)\s+(.+?)(?:\s+(?:pada|tahun|di)|[,.;]|$)/i) ||
+    query.match(/([a-z][a-z .]+?)\s+(?:vs|versus)\s+([a-z][a-z .]+?)(?:\s+(?:pada|tahun|di)|[,.;]|$)/i);
   if (comparisonMatch) {
-    extractedParams.region1 = comparisonMatch[2].trim();
-    extractedParams.region2 = comparisonMatch[4].trim();
+    const stripIndicator = (value: string) =>
+      value
+        .replace(
+          /^(kemiskinan|pengangguran|ipm|penduduk|inflasi|pdrb|gini|indeks pembangunan manusia|tingkat pengangguran terbuka)\s+/i,
+          ""
+        )
+        .trim();
+    extractedParams.region1 = stripIndicator(comparisonMatch[1]);
+    extractedParams.region2 = stripIndicator(comparisonMatch[2]);
   }
 
   // Score each intent
@@ -115,10 +124,6 @@ export function detectIntent(
   for (const pattern of PUBLICATION_PATTERNS) {
     if (pattern.test(query)) scores.publication += 30;
   }
-
-  // Bonus for multiple regions in query
-  const regionCount = (query.match(/(dan|,|versus|vs)/g) || []).length;
-  if (regionCount >= 2) scores.comparison += 20;
 
   // Bonus for year range
   if (year && year.includes(",")) scores.trend += 20;

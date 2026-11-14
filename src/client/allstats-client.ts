@@ -100,6 +100,8 @@ export interface AllStatsDeepSearchResponse {
   currentPage: number;
   totalPages: number;
   matches: AllStatsDeepSearchMatch[];
+  /** Set when BPS redirects /deep to normal search or the format changes. */
+  notice?: string;
 }
 
 // ========== OCR Cleanup ==========
@@ -236,20 +238,23 @@ export class AllStatsClient {
       sort: params.sort || "terbaru",
     });
 
-    return this.parseSearchResults(html, params.query, params.page || 1);
+    return this.parseSearchResults(html, params.query, params.page || 1, params);
   }
 
   private parseSearchResults(
     html: string,
     query: string,
-    currentPage: number
+    currentPage: number,
+    params?: AllStatsSearchParams
   ): AllStatsSearchResponse {
     const $ = cheerio.load(html);
 
-    // Total results: "Menampilkan 4.079 hasil pencarian dalam 0.367 detik"
-    const totalMatch = $("body")
-      .text()
-      .match(/Menampilkan\s+([\d.]+)\s+hasil pencarian/);
+    // Total results: "Menampilkan 4.079 hasil pencarian dalam ..." or
+    // "Menampilkan 106 tabel dalam ...". The noun changes per content type.
+    const bodyText = $("body").text();
+    const totalMatch =
+      bodyText.match(/Menampilkan\s+([\d.]+)\s+(?:hasil pencarian|tabel|publikasi|berita|infografis|data mikro|glosarium|klasifikasi)/i) ||
+      bodyText.match(/Menampilkan\s+([\d.]+)/i);
     const totalResults = totalMatch
       ? parseInt(totalMatch[1].replace(/\./g, ""))
       : 0;
@@ -274,15 +279,22 @@ export class AllStatsClient {
         .trim();
 
       const badges = $c.find("div.badge");
-      const contentType = badges.first().text().trim();
+      const badgeTexts = badges.toArray().map((badge) => $(badge).text().trim()).filter(Boolean);
+      const contentType = badgeTexts[0] || params?.content || "";
+      const domainBadge = $c.find("div.badge.text-bg-light").text().trim();
       const domain =
-        $c.find("div.badge.text-bg-light").text().trim() ||
-        badges.last().text().trim();
+        domainBadge ||
+        (badgeTexts.length > 1 ? badgeTexts[badgeTexts.length - 1] : "") ||
+        params?.domain || "";
 
       let deepSearchId: string | undefined;
-      const deepHref = $c.find('a[href*="deep"]').attr("href");
-      if (deepHref) {
-        const m = deepHref.match(/id=([a-f0-9]{24})/);
+      // Publication URLs contain the id BPS uses for /deep.
+      const urlMatch = url.match(/\/publication\/\d{4}\/\d{2}\/\d{2}\/([a-f0-9]{24})\//);
+      if (urlMatch) {
+        deepSearchId = urlMatch[1];
+      } else {
+        const deepHref = $c.find('a[href*="deep"]').attr("href");
+        const m = deepHref?.match(/id=([a-f0-9]{24})/);
         if (m) deepSearchId = m[1];
       }
 
@@ -328,9 +340,20 @@ export class AllStatsClient {
   ): AllStatsDeepSearchResponse {
     const $ = cheerio.load(html);
 
-    // Publication metadata
+    // Deep Search now sometimes redirects to the normal search page (BPS
+    // changed/removed the endpoint for some publications). Detect that instead
+    // of returning ten empty "Halaman 0" rows.
+    const hasDeepMarkers =
+      $("a.linkhalaman").length > 0 ||
+      $('p[id^="deskripsi-"]').length > 0;
+
+    const title =
+      $("h5.card-title.fw-semibold").first().text().trim() ||
+      $("h5.fw-medium").first().text().trim() ||
+      $("title").text().replace(/\s*-\s*AllStats Search\s*$/i, "").trim();
+
     const publication: AllStatsDeepSearchPublication = {
-      title: $("h5.card-title.fw-semibold").first().text().trim(),
+      title,
       publisher: $("p.card-text.text-body-secondary").first().text().trim(),
       coverUrl: $("img.foreground").attr("src") || "",
       publicationUrl:
@@ -347,11 +370,14 @@ export class AllStatsClient {
       if (m) publication.pdfDownloadBase = m[0];
     });
 
-    // Total matches: "Menampilkan 11 halaman dengan kata kunci "akses internet""
-    const totalMatch = $("body")
-      .text()
-      .match(/Menampilkan\s+(\d+)\s+halaman dengan kata kunci/);
-    const totalMatches = totalMatch ? parseInt(totalMatch[1]) : 0;
+    // Total matches: "Menampilkan 11 halaman dengan kata kunci ..."
+    const bodyText = $("body").text();
+    const totalMatch =
+      bodyText.match(/Menampilkan\s+([\d.]+)\s+halaman dengan kata kunci/i) ||
+      bodyText.match(/Menampilkan\s+([\d.]+)\s+halaman/i);
+    const totalMatches = totalMatch
+      ? parseInt(totalMatch[1].replace(/\./g, ""))
+      : 0;
 
     // Pagination
     const pages: number[] = [];
@@ -363,26 +389,39 @@ export class AllStatsClient {
 
     // Matches
     const matches: AllStatsDeepSearchMatch[] = [];
-    $("div.card-result").each((_, el) => {
-      const $c = $(el);
-      const pageNumber = parseInt(
-        $c.find("a.linkhalaman").attr("data-page") || "0"
-      );
-      const excerptEl = $c.find('p[id^="deskripsi-"]');
-      const excerpt = cleanExcerpt(excerptEl.text());
+    if (hasDeepMarkers) {
+      $("div.card-result").each((_, el) => {
+        const $c = $(el);
+        const pageNumber = parseInt(
+          $c.find("a.linkhalaman").attr("data-page") ||
+            $c.find("[data-page]").first().attr("data-page") ||
+            "0",
+          10
+        );
+        const excerptEl = $c.find('p[id^="deskripsi-"]').first();
+        const excerpt = cleanExcerpt(
+          excerptEl.text() || $c.find("p.text-body-secondary").first().text()
+        );
 
-      const highlights: string[] = [];
-      excerptEl.find("mark").each((_, mark) => {
-        const kw = $(mark).text().trim().toLowerCase();
-        if (!highlights.includes(kw)) highlights.push(kw);
+        const highlights: string[] = [];
+        excerptEl.find("mark").each((_, mark) => {
+          const kw = $(mark).text().trim().toLowerCase();
+          if (!highlights.includes(kw)) highlights.push(kw);
+        });
+
+        if (pageNumber === 0 && !excerpt) return;
+
+        const pdfViewerUrl = publication.pdfDownloadBase
+          ? `${publication.pdfDownloadBase}#page=${pageNumber}`
+          : "";
+
+        matches.push({ pageNumber, excerpt, highlights, pdfViewerUrl });
       });
+    }
 
-      const pdfViewerUrl = publication.pdfDownloadBase
-        ? `${publication.pdfDownloadBase}#page=${pageNumber}`
-        : "";
-
-      matches.push({ pageNumber, excerpt, highlights, pdfViewerUrl });
-    });
+    const notice = hasDeepMarkers
+      ? undefined
+      : "Deep Search tidak tersedia untuk publikasi ini (BPS mengalihkan endpoint /deep ke pencarian biasa). Gunakan allstats_search atau buka PDF publikasi langsung.";
 
     return {
       query,
@@ -391,6 +430,7 @@ export class AllStatsClient {
       currentPage,
       totalPages,
       matches,
+      notice,
     };
   }
 }

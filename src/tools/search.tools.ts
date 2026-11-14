@@ -6,6 +6,14 @@ import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
 import { BpsNotFoundError } from "../utils/error.js";
 import { logger } from "../utils/logger.js";
+import { stripHtml } from "../utils/html.js";
+import { formatUnit } from "../client/fields.js";
+import type {
+  BpsPressRelease,
+  BpsPublication,
+  BpsStaticTable,
+  BpsStrategicIndicator,
+} from "../client/types.js";
 
 /** Map WebAPI type names to AllStats content types */
 const WEBAPI_TO_ALLSTATS_CONTENT: Record<string, string> = {
@@ -14,6 +22,81 @@ const WEBAPI_TO_ALLSTATS_CONTENT: Record<string, string> = {
   publication: "publication",
   strategicindicator: "table",
 };
+
+function truncate(text: string | null | undefined, max = 220): string {
+  if (!text) return "";
+  const clean = stripHtml(text).replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+/** Format WebAPI search results without dumping huge JSON/base64 URLs. */
+function formatWebApiResults(data: unknown[], keyword: string, type?: string): string {
+  const lines: string[] = [`## Hasil Pencarian: "${keyword}"`, ""];
+  lines.push(`**Ditemukan:** ${data.length} hasil`);
+  lines.push("");
+
+  const inferredType = type || (
+    data[0] && typeof data[0] === "object" && "table_id" in (data[0] as object)
+      ? "statictable"
+      : data[0] && typeof data[0] === "object" && "brs_id" in (data[0] as object)
+        ? "pressrelease"
+        : data[0] && typeof data[0] === "object" && "pub_id" in (data[0] as object)
+          ? "publication"
+          : data[0] && typeof data[0] === "object" && "indicator_id" in (data[0] as object)
+            ? "strategicindicator"
+            : "unknown"
+  );
+
+  for (let index = 0; index < Math.min(data.length, 10); index++) {
+    const item = data[index] as Record<string, unknown>;
+    const number = index + 1;
+
+    if (inferredType === "statictable") {
+      const table = item as unknown as BpsStaticTable;
+      lines.push(`${number}. **${stripHtml(table.title)}**`);
+      lines.push(`   - ID: \`${table.table_id}\` | Subjek: ${table.subj ?? "-"}${table.updt_date ? ` | Update: ${table.updt_date}` : ""}`);
+      continue;
+    }
+
+    if (inferredType === "pressrelease") {
+      const release = item as unknown as BpsPressRelease;
+      lines.push(`${number}. **${stripHtml(release.title)}**`);
+      lines.push(`   - ID: \`${release.brs_id}\` | Tanggal: ${release.rl_date}`);
+      const abstract = truncate(release.abstract);
+      if (abstract) lines.push(`   - ${abstract}`);
+      continue;
+    }
+
+    if (inferredType === "publication") {
+      const publication = item as unknown as BpsPublication;
+      lines.push(`${number}. **${stripHtml(publication.title)}**`);
+      lines.push(`   - ID: \`${publication.pub_id}\` | Rilis: ${publication.rl_date}${publication.issn ? ` | ISSN: ${publication.issn}` : ""}`);
+      const abstract = truncate(publication.abstract);
+      if (abstract) lines.push(`   - ${abstract}`);
+      continue;
+    }
+
+    if (inferredType === "strategicindicator") {
+      const indicator = item as unknown as BpsStrategicIndicator;
+      const unit = formatUnit(indicator.unit);
+      lines.push(`${number}. **${stripHtml(indicator.title)}**`);
+      lines.push(`   - ${indicator.value}${unit ? ` ${unit}` : ""} (${indicator.periode})`);
+      continue;
+    }
+
+    const safe = JSON.stringify(
+      item,
+      (_key, value) => (typeof value === "string" && value.length > 220 ? `${value.slice(0, 220)}…` : value),
+      2
+    );
+    lines.push(`${number}. \`\`\`json\n${safe}\n\`\`\``);
+  }
+
+  if (data.length > 10) {
+    lines.push("", `_Menampilkan 10 dari ${data.length} hasil pada halaman ini._`);
+  }
+  return lines.join("\n");
+}
 
 function formatAllStatsFallback(res: AllStatsSearchResponse): string {
   const lines: string[] = [];
@@ -109,15 +192,16 @@ Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`
         Array.isArray(webapiResult.data) &&
         webapiResult.data.length > 0;
 
-      if (webapiHasData) {
-        // WebAPI returned results — use them
-        const text = appendAttribution(
-          `## Hasil Pencarian: "${keyword}"\n\n` +
-            "```json\n" +
-            JSON.stringify(webapiResult, null, 2) +
-            "\n```"
-        );
-        return { content: [{ type: "text", text }] };
+      if (webapiHasData && webapiResult) {
+        // WebAPI returned results — format them instead of dumping raw JSON
+        const lines = [formatWebApiResults(webapiResult.data, keyword, type)];
+        if (webapiResult.page) {
+          lines.push(
+            "",
+            `_Halaman ${webapiResult.page.page} dari ${webapiResult.page.pages} (total: ${webapiResult.page.total}). Gunakan parameter \`page\` untuk halaman berikutnya._`
+          );
+        }
+        return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
       }
 
       // --- Step 2: Fallback to AllStats ---

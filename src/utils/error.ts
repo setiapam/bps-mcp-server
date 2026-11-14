@@ -31,6 +31,13 @@ export function formatErrorForUser(error: unknown): string {
     return error.message;
   }
   if (error instanceof BpsApiError) {
+    if (error.statusCode === 429) {
+      return (
+        "Batas permintaan BPS API tercapai (HTTP 429). Tunggu 1–2 menit lalu coba lagi. " +
+        "Gunakan cache atau kurangi jumlah panggilan beruntun. " +
+        "Jika tetap terjadi, key Anda mungkin sedang dibatasi sementara oleh BPS."
+      );
+    }
     return `Error dari BPS API (${error.statusCode ?? "unknown"}): ${error.message}`;
   }
   if (error instanceof Error) {

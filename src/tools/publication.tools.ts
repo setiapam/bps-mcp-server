@@ -4,6 +4,7 @@ import type { BpsClient } from "../client/bps-client.js";
 import { formatList } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import { stripHtml } from "../utils/html.js";
 
 export function registerPublicationTools(server: McpServer, client: BpsClient): void {
   // Press Releases (BRS)
@@ -24,7 +25,10 @@ export function registerPublicationTools(server: McpServer, client: BpsClient): 
           result.data,
           (pr) => {
             let desc = `**${pr.title}** (ID: ${pr.brs_id}) — ${pr.rl_date}`;
-            if (pr.abstract) desc += `\n   ${pr.abstract.substring(0, 200)}...`;
+            if (pr.abstract) {
+              const abstract = stripHtml(pr.abstract);
+              if (abstract) desc += `\n   ${abstract.substring(0, 200)}...`;
+            }
             return desc;
           },
           "Daftar Berita Resmi Statistik (BRS)"
@@ -52,7 +56,8 @@ export function registerPublicationTools(server: McpServer, client: BpsClient): 
           `**Tanggal Rilis:** ${pr.rl_date}`,
         ];
         if (pr.abstract) {
-          lines.push("", "### Abstrak", pr.abstract);
+          const abstract = stripHtml(pr.abstract);
+          if (abstract) lines.push("", "### Abstrak", abstract);
         }
         if (pr.pdf) {
           lines.push("", `**Download PDF:** ${pr.pdf}`);
@@ -112,7 +117,8 @@ export function registerPublicationTools(server: McpServer, client: BpsClient): 
         ];
         if (pub.issn) lines.push(`**ISSN:** ${pub.issn}`);
         if (pub.abstract) {
-          lines.push("", "### Abstrak", pub.abstract);
+          const abstract = stripHtml(pub.abstract);
+          if (abstract) lines.push("", "### Abstrak", abstract);
         }
         if (pub.pdf) {
           lines.push("", `**Download PDF:** ${pub.pdf}`);

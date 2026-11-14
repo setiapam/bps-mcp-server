@@ -3,7 +3,23 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
 import { formatDynamicData, formatList } from "../services/data-formatter.js";
+import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
+import {
+  formatUnit,
+  getPeriodId,
+  getPeriodLabel,
+  getTurthId,
+  getTurthLabel,
+  getTurvarGroup,
+  getTurvarId,
+  getTurvarLabel,
+  getVariableTitle,
+  getVariableUnit,
+  getVervarGroup,
+  getVervarId,
+  getVervarLabel,
+} from "../client/fields.js";
 
 export function registerDynamicDataTools(server: McpServer, client: BpsClient, config: Config): void {
   server.tool(
@@ -15,10 +31,15 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     },
     async ({ domain, subcat }) => {
       try {
-        const result = await client.listSubjects(domain, subcat);
+        const subjects = await client.listAllSubjects(domain, subcat);
         const text = formatList(
-          result.data,
-          (s) => `**${s.title}** (ID: ${s.sub_id}) — ${s.ntabel ?? 0} tabel, ${s.nvar ?? 0} variabel`,
+          subjects,
+          (s) => {
+            const counts: string[] = [];
+            if (s.ntabel && s.ntabel > 0) counts.push(`${s.ntabel} tabel`);
+            if (s.nvar && s.nvar > 0) counts.push(`${s.nvar} variabel`);
+            return `**${s.title}** (ID: ${s.sub_id})${counts.length > 0 ? ` — ${counts.join(", ")}` : ""}`;
+          },
           "Daftar Subjek Statistik"
         );
         return { content: [{ type: "text", text }] };
@@ -64,9 +85,11 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
         const text = formatList(
           result.data,
           (v) => {
-            let desc = `**${v.title}** (ID: ${v.var_id})`;
+            const title = getVariableTitle(v) || v.title;
+            const unit = formatUnit(getVariableUnit(v));
+            let desc = `**${title}** (ID: ${v.var_id})`;
             if (v.sub_name) desc += ` — Subjek: ${v.sub_name}`;
-            if (v.unit) desc += ` — Satuan: ${v.unit}`;
+            if (unit) desc += ` — Satuan: ${unit}`;
             if (v.def) desc += `\n   ${v.def}`;
             return desc;
           },
@@ -91,7 +114,11 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
         const result = await client.listVerticalVariables(domain, varId);
         const text = formatList(
           result,
-          (v) => `**${v.label_vervar}** (ID: ${v.kode_vervar}) — Grup: ${v.name_group_vervar}`,
+          (v) => {
+            const label = getVervarLabel(v) || "(tanpa label)";
+            const group = getVervarGroup(v);
+            return `**${label}** (ID: ${getVervarId(v) || "-"})${group ? ` — Grup: ${group}` : ""}`;
+          },
           "Daftar Variabel Vertikal"
         );
         return { content: [{ type: "text", text }] };
@@ -113,7 +140,11 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
         const result = await client.listDerivedVariables(domain, varId);
         const text = formatList(
           result,
-          (v) => `**${v.label_turvar}** (ID: ${v.kode_turvar}) — Grup: ${v.name_group_turvar}`,
+          (v) => {
+            const label = getTurvarLabel(v) || "(tanpa label)";
+            const group = getTurvarGroup(v);
+            return `**${label}** (ID: ${getTurvarId(v) || "-"})${group ? ` — Grup: ${group}` : ""}`;
+          },
           "Daftar Turunan Variabel"
         );
         return { content: [{ type: "text", text }] };
@@ -132,10 +163,10 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     },
     async ({ domain, var: varId }) => {
       try {
-        const result = await client.listPeriods(domain, varId);
+        const result = await client.listAllPeriods(domain, varId);
         const text = formatList(
           result,
-          (p) => `**${p.th_name}** (ID: ${p.th_id})`,
+          (p) => `**${getPeriodLabel(p) || "(tanpa label)"}** (ID: ${getPeriodId(p) || "-"})`,
           "Daftar Periode Data"
         );
         return { content: [{ type: "text", text }] };
@@ -157,7 +188,7 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
         const result = await client.listDerivedPeriods(domain, varId);
         const text = formatList(
           result,
-          (p) => `**${p.turth_name}** (ID: ${p.turth_id})`,
+          (p) => `**${getTurthLabel(p) || "(tanpa label)"}** (ID: ${getTurthId(p) || "-"})`,
           "Daftar Turunan Periode"
         );
         return { content: [{ type: "text", text }] };
@@ -172,10 +203,11 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     "Daftar satuan data yang digunakan di domain tertentu. Contoh: Jiwa, Persen, Rupiah.",
     {
       domain: z.string().default("0000").describe("Kode domain BPS"),
+      page: z.number().int().min(1).optional().describe("Nomor halaman (10 satuan per halaman)"),
     },
-    async ({ domain }) => {
+    async ({ domain, page }) => {
       try {
-        const result = await client.listUnits(domain);
+        const result = await client.listUnits(domain, page);
         const text = formatList(
           result,
           (u) => `**${u.unit}** (ID: ${u.unit_id})`,
@@ -193,30 +225,54 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     `Ambil data dari tabel dinamis BPS. Tool ini membutuhkan ID variabel yang spesifik.
 
 PENTING: Gunakan find_data terlebih dahulu untuk pencarian otomatis. Gunakan tool ini hanya jika sudah tahu var_id.
-BPS WebAPI mewajibkan/sangat membutuhkan parameter th (tahun) untuk beberapa variabel tertentu (misal: Garis Kemiskinan), jika dikosongkan API BPS akan merespons kosong. Disarankan selalu menyertakan parameter th (tahun) yang ingin dicari (misal: '2023' atau '2020,2021,2022,2023,2024').
+Jika parameter th dikosongkan, server otomatis memilih periode terbaru yang tersedia. Untuk beberapa tahun, pisahkan dengan koma (contoh: '2020,2021,2022,2023'); server akan memecahnya karena BPS membatasi maksimal 3 periode per request.
 
 Variabel umum (nasional, domain=0000):
-- 1452: Jumlah Penduduk (ribu jiwa)
-- 185: Persentase Penduduk Miskin
-- 523: Tingkat Pengangguran Terbuka (%)
-- 108: Laju Pertumbuhan PDB (%)
-- 1706: Indeks Pembangunan Manusia (IPM)
-- 2103: Gini Rasio
+- 2781: Jumlah Penduduk menurut Provinsi dan Jenis Kelamin
+- 184: Persentase Penduduk Miskin (P0)
+- 183: Jumlah Penduduk Miskin Menurut Wilayah
+- 543: Tingkat Pengangguran Terbuka Menurut Provinsi (%)
+- 413: [Metode Baru] Indeks Pembangunan Manusia (IPM)
+- 98: Gini Ratio Menurut Provinsi dan Daerah
+- 2263: Inflasi Tahunan (Y-on-Y) 38 Provinsi
 
 Gunakan find_variable untuk mencari ID variabel lainnya.`,
     {
       domain: z.string().describe("Kode domain BPS. '0000' untuk nasional."),
       var: z.string().describe("ID variabel (bisa beberapa, pisahkan dengan koma). Contoh: '1452' atau '1452,1453'"),
-      th: z.string().optional().describe("Kode periode/tahun (bisa beberapa, contoh: '2023' atau '2020,2021,2022,2023'). PENTING: Selalu berikan nilai th jika mencari data yang rentan kosong seperti Garis Kemiskinan."),
+      th: z.string().optional().describe("Kode periode/tahun (bisa beberapa, pisahkan koma, contoh: '2023' atau '2020,2021,2022'). Jika kosong, server memakai periode terbaru."),
       turvar: z.string().optional().describe("Kode turunan variabel"),
       vervar: z.string().optional().describe("Kode variabel vertikal"),
       turth: z.string().optional().describe("Kode turunan periode"),
     },
     async ({ domain, var: varId, th, turvar, vervar, turth }) => {
       try {
-        const result = await client.getDynamicData(domain, varId, th, turvar, vervar, turth);
-        const text = formatDynamicData(result, domain, config.defaultLang);
-        return { content: [{ type: "text", text }] };
+        let period = th;
+        let autoPeriodNote = "";
+
+        // BPS requires `th` for many variables. If the caller omitted it, resolve
+        // the latest available period instead of letting the API return 400.
+        if (!period) {
+          const firstVar = varId.split(/[,;]/)[0]?.trim();
+          const numericVar = Number(firstVar);
+          if (Number.isFinite(numericVar) && numericVar > 0) {
+            try {
+              const periods = await client.listPeriods(domain, numericVar, 1);
+              const latest = periods[0];
+              const latestId = latest ? getPeriodId(latest) : "";
+              if (latestId) {
+                period = latestId;
+                autoPeriodNote = `\n\n_Periode terbaru dipilih otomatis: ${getPeriodLabel(latest)} (ID: ${latestId})._`;
+              }
+            } catch {
+              // Fall through and let the API report the missing period.
+            }
+          }
+        }
+
+        const result = await client.getDynamicData(domain, varId, period, turvar, vervar, turth);
+        const text = formatDynamicData(result, domain, config.defaultLang, { includeAttribution: false });
+        return { content: [{ type: "text", text: appendAttribution(text + autoPeriodNote) }] };
       } catch (error) {
         return { content: [{ type: "text", text: formatErrorForUser(error) }], isError: true };
       }
