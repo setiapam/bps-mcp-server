@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/setiapam/bps-mcp-server/compare/v0.18.0...v0.19.0) (2026-11-15)
+
+
+### Features
+
+* one-call lookup for the remaining custom tools ([983d25d](https://github.com/setiapam/bps-mcp-server/commit/983d25d4d7294f3490432feb531f5630b7e30958))
+
 ## [0.18.0](https://github.com/setiapam/bps-mcp-server/compare/v0.17.0...v0.18.0) (2026-11-15)
 
 
