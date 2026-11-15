@@ -10,6 +10,9 @@ import { logger } from "../utils/logger.js";
 import { htmlTableToMarkdown } from "../utils/html.js";
 
 import type { IPersistentStore } from "../services/persistent-store.js";
+import type { BpsDynamicDataResponse } from "../client/types.js";
+import { hasRegionRow } from "../services/region-series.js";
+import { resolvePeriodsForSpec } from "../services/period-resolver.js";
 import {
   lookupVar,
   learnVar,
@@ -57,11 +60,23 @@ Contoh penggunaan:
 
 Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil datanya.`,
     {
-      keyword: z.string().describe("Kata kunci pencarian variabel (misal: penduduk, kemiskinan, inflasi, pengangguran, PDRB)"),
+      keyword: z.string().optional().describe("Kata kunci pencarian variabel (misal: penduduk, kemiskinan, inflasi, pengangguran, PDRB)"),
+      keywords: z.string().optional().describe("Alias untuk 'keyword'."),
+      query: z.string().optional().describe("Alias untuk 'keyword'."),
       domain: z.string().default("0000").describe("Kode domain BPS. '0000'=nasional. Gunakan resolve_domain jika perlu."),
       subject: z.number().optional().describe("Filter berdasarkan ID subjek (opsional, gunakan list_subjects untuk melihat daftar)"),
     },
-    async ({ keyword, domain, subject }) => {
+    async ({ keyword: keywordInput, keywords, query, domain, subject }) => {
+      const keyword = keywordInput ?? keywords ?? query;
+      if (!keyword || !keyword.trim()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Parameter 'keyword' wajib diisi, misal find_variable(keyword=\"penduduk miskin\", domain=\"3500\").",
+          }],
+          isError: true,
+        };
+      }
       try {
         const allVars: Array<{ var_id: number; title: string; sub_name: string; unit?: string; def?: string }> = [];
 
@@ -348,8 +363,16 @@ Contoh:
         // Step 4: Get data
         let result = await client.getDynamicData(domain, String(bestVar.var_id), periodParam);
 
+        // A provincial domain can expose a national table whose only row is
+        // "Indonesia" — that is not the region's figure. Treat it as no data so
+        // the candidate fallback below can find a table with a real region row.
+        const usable = (response: BpsDynamicDataResponse | undefined): boolean =>
+          !!response?.datacontent &&
+          Object.keys(response.datacontent).length > 0 &&
+          (domain === "0000" || hasRegionRow(response, domain, domainName));
+
         // Self-healing: if data empty and var came from learning, invalidate and retry search
-        if ((!result.datacontent || Object.keys(result.datacontent).length === 0) && fromLearning) {
+        if (!usable(result) && fromLearning) {
           logger.debug(`find_data: self-healing — invalidating learned var_id=${bestVar.var_id}`);
           await invalidateVar(query, domain, store);
           if (year) {
@@ -378,13 +401,24 @@ Contoh:
 
         // If the best variable has no data, try the next candidates before
         // falling back to static tables.
-        if ((!result.datacontent || Object.keys(result.datacontent).length === 0) && candidates.length > 1) {
+        if (!usable(result) && candidates.length > 1) {
           for (const candidate of candidates.slice(1, 4)) {
             if (candidate.var_id === bestVar.var_id) continue;
             try {
-              const candidatePeriod = await resolvePeriod(client, store, candidate.var_id, domain, year);
+              let candidatePeriod = await resolvePeriod(client, store, candidate.var_id, domain, year);
+              // Never fall back to a year the caller did not ask for.
+              if (yearList.length > 0) {
+                const resolvedYears = await resolvePeriodsForSpec(
+                  client,
+                  domain,
+                  candidate.var_id,
+                  yearList.join(",")
+                );
+                if (resolvedYears.entries.length === 0) continue;
+                candidatePeriod = resolvedYears.entries.map((entry) => entry.id).join(";");
+              }
               const candidateResult = await client.getDynamicData(domain, String(candidate.var_id), candidatePeriod);
-              if (candidateResult.datacontent && Object.keys(candidateResult.datacontent).length > 0) {
+              if (usable(candidateResult)) {
                 bestVar = {
                   var_id: candidate.var_id,
                   title: candidate.title,
@@ -407,7 +441,7 @@ Contoh:
         }
 
         // Fallback for kab/kota domains: try parent province if no data
-        if ((!result.datacontent || Object.keys(result.datacontent).length === 0) &&
+        if (!usable(result) &&
             domain !== "0000" && domain.length === 4 && !domain.endsWith("00")) {
           const parentDomain = domain.slice(0, 2) + "00";
           const parentCandidates = await searchVariables(client, parentDomain, kw, {
@@ -419,7 +453,8 @@ Contoh:
           if (parentVar) {
             const parentPeriod = await resolvePeriod(client, store, parentVar.var_id, parentDomain, year);
             const parentResult = await client.getDynamicData(parentDomain, String(parentVar.var_id), parentPeriod);
-            if (parentResult.datacontent && Object.keys(parentResult.datacontent).length > 0) {
+            if (parentResult.datacontent && Object.keys(parentResult.datacontent).length > 0 &&
+                (parentDomain === "0000" || hasRegionRow(parentResult, parentDomain, undefined))) {
               const relevantParent = filterRelevantVervar(parentResult, parentDomain);
               const parentFormatted = formatDynamicData(relevantParent, parentDomain, config.defaultLang, {
                 includeAttribution: false,
@@ -431,7 +466,7 @@ Contoh:
         }
 
         // Still no data after retry — try static tables as fallback
-        if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
+        if (!usable(result)) {
           try {
             const staticText = await staticTableFallback(client, domain, domainName, kw, query);
             if (staticText) {

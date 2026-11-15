@@ -43,10 +43,14 @@ ATURAN ROUTING (penting, hemat panggilan):
    - level="provinsi" untuk peringkat provinsi.
    JANGAN menyusun peringkat kabupaten/kota manual dengan list_variables /
    get_dynamic_data per provinsi: hasilnya 100+ panggilan dan tahunnya campur.
-2. Angka satu wilayah ("pengangguran Jawa Timur") -> find_data.
-3. Bandingkan 2+ wilayah -> compare_data. Tren multi-tahun -> get_trend.
-4. Butuh angka mentah dari var_id yang sudah diketahui -> get_dynamic_data
-   (pakai format="json" bila hasilnya akan diolah lagi).
+2. Angka satu wilayah ("pengangguran Jawa Timur") -> find_data; tren satu wilayah -> get_trend.
+3. Bandingkan 2+ wilayah -> compare_data. Perbandingan multi-tahun
+   ("5 tahun terakhir") juga compare_data: isi years="2021-2025" atau
+   start_year/end_year — satu panggilan menghasilkan tabel wilayah x tahun.
+   JANGAN memanggil get_trend per wilayah untuk perbandingan.
+4. Butuh angka mentah dari var_id yang sudah diketahui -> get_dynamic_data.
+   Parameter th menerima TAHUN langsung ('2021-2025'), tidak perlu list_periods.
+   Pakai format="json" bila hasilnya akan diolah lagi.
 5. Mencari variabel/tabel/publikasi -> find_variable, search, allstats_search.
 
 CATATAN DATA: periode antar provinsi tidak seragam (2024-2026). Selalu sebutkan

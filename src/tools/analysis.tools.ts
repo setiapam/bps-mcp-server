@@ -5,29 +5,19 @@ import type { Config } from "../config/index.js";
 import type { DomainResolver } from "../services/domain-resolver.js";
 import type { IPersistentStore } from "../services/persistent-store.js";
 import { appendAttribution } from "../services/attribution.js";
-import { invalidateVar, normalizeKeyword } from "../services/learning.js";
-import {
-  resolveVariable as resolveVariableShared,
-  resolveVariableForYears,
-  searchVariables,
-} from "../services/variable-search.js";
+import { normalizeKeyword } from "../services/learning.js";
+import { resolveVariable as resolveVariableShared, searchVariables } from "../services/variable-search.js";
 import { formatKabkotaRanking, rankKabkota } from "../services/kabkota-ranking.js";
 import { findKabkotaIndicator } from "../config/kabkota-indicators.js";
-import {
-  extractVervarId,
-  getAggregateValue,
-  getVervarEntries,
-  selectAggregateVervar,
-} from "../services/dynamic-data-utils.js";
+import { buildNationalBreakdown, buildRegionSeries, type RegionSeries } from "../services/region-series.js";
+import { parseYearSpec } from "../services/period-resolver.js";
+import { extractVervarId, getVervarEntries } from "../services/dynamic-data-utils.js";
 import {
   formatUnit,
   getPeriodId,
   getPeriodLabel,
-  getTurthId,
-  getTurthLabel,
   getVariableTitle,
   getVariableUnit,
-  isNeutralPeriodLabel,
 } from "../client/fields.js";
 
 /**
@@ -44,92 +34,295 @@ export function registerAnalysisTools(
   // ---------- compare_data ----------
   server.tool(
     "compare_data",
-    `Bandingkan data statistik antar wilayah dalam 1 langkah.
-Gunakan tool ini ketika user ingin membandingkan data antara 2 atau lebih wilayah.
-Catatan: hanya mendukung perbandingan untuk 1 tahun. Untuk perbandingan multi-tahun, gunakan get_trend per wilayah.
+    `Bandingkan data statistik antar wilayah dalam 1 langkah — termasuk multi-tahun.
+
+Untuk 1 tahun: isi \`year\` (atau kosongkan untuk data terbaru).
+Untuk beberapa tahun sekaligus (mis. "5 tahun terakhir"): isi \`years\`
+("2021-2025", "2021,2022,2023") atau \`start_year\`/\`end_year\`. Hasilnya berupa
+tabel wilayah × tahun + selisih + tren, dalam SATU panggilan. Tidak perlu
+memanggil get_trend per wilayah.
 
 Contoh query user yang cocok untuk tool ini:
 - "bandingkan kemiskinan Jawa Timur dan Jawa Barat"
-- "IPM DKI Jakarta vs Banten vs Jawa Barat"
-- "perbandingan pengangguran antar provinsi di Jawa"
+- "perbandingan jumlah penduduk miskin Jatim vs Jabar 5 tahun terakhir"
+- "IPM DKI Jakarta vs Banten vs Jawa Barat 2020-2024"
 - "mana yang lebih tinggi kemiskinan Jatim atau Jabar?"`,
     {
       query: z.string().describe("Indikator yang dibandingkan (misal: kemiskinan, pengangguran, IPM, penduduk)"),
-      regions: z.string().describe("Nama wilayah dipisah koma (misal: 'Jawa Timur, Jawa Barat, Jawa Tengah')"),
-      year: z.string().optional().describe("Tahun data (misal: '2023'). Kosongkan untuk data terbaru."),
+      regions: z.string().optional().describe("Nama wilayah dipisah koma (misal: 'Jawa Timur, Jawa Barat, Jawa Tengah')"),
+      wilayah: z.string().optional().describe("Alias untuk 'regions'."),
+      provinces: z.string().optional().describe("Alias untuk 'regions'."),
+      year: z.string().optional().describe("Satu tahun (misal: '2023'). Kosongkan untuk data terbaru."),
+      years: z.string().optional().describe("Beberapa tahun: '2021-2025' atau '2021,2022,2023'. Mengalahkan parameter year."),
+      start_year: z.string().optional().describe("Tahun awal untuk perbandingan multi-tahun"),
+      end_year: z.string().optional().describe("Tahun akhir untuk perbandingan multi-tahun"),
     },
-    async ({ query, regions, year }) => {
+    async ({ query, regions: regionsInput, wilayah, provinces, year, years, start_year, end_year }) => {
       try {
+        const regions = regionsInput ?? wilayah ?? provinces ?? "";
+        if (!regions.trim()) {
+          return { content: [{ type: "text", text: "Parameter 'regions' wajib diisi, misal regions=\"Jawa Timur, Jawa Barat\"." }], isError: true };
+        }
         const regionList = regions.split(",").map(r => r.trim()).filter(Boolean);
         if (regionList.length < 2) {
           return { content: [{ type: "text", text: "Minimal 2 wilayah untuk perbandingan." }], isError: true };
         }
-        if (year && /[,;]/.test(year)) {
+
+        const spec = years ?? (start_year ? `${start_year}-${end_year ?? start_year}` : year);
+        const parsed = parseYearSpec(spec);
+        const multiYear = parsed.years.length > 1 || parsed.periodIds.length > 1;
+
+        const resolvedRegions = await Promise.all(
+          regionList.map(async (regionName) => ({
+            regionName,
+            resolved: await resolver.resolve(regionName),
+          }))
+        );
+
+        const seriesList: RegionSeries[] = [];
+        let usedNationalTable = false;
+
+        // Fast path: all regions are provinces and one national table already
+        // lists them all. One request, one unit, full precision.
+        const provinceOnly =
+          resolvedRegions.length > 1 &&
+          resolvedRegions.every(
+            (item) =>
+              item.resolved !== null &&
+              /^\d{4}$/.test(item.resolved.domainId) &&
+              item.resolved.domainId.endsWith("00")
+          );
+
+        if (provinceOnly) {
+          const breakdown = await buildNationalBreakdown(
+            client,
+            query,
+            resolvedRegions.map((item) => ({
+              name: item.regionName,
+              domainName: item.resolved!.domainName,
+            })),
+            parsed.years
+          );
+          if (breakdown) {
+            usedNationalTable = true;
+            for (const item of resolvedRegions) {
+              const points = breakdown.byRegion.get(item.resolved!.domainName) ?? [];
+              seriesList.push({
+                region: item.regionName,
+                domain: "0000",
+                domainName: item.resolved!.domainName,
+                varId: breakdown.varId,
+                varTitle: breakdown.varTitle,
+                unit: breakdown.unit,
+                seriesLabel: breakdown.seriesLabel,
+                points,
+                missingYears: parsed.years.filter(
+                  (year) => !points.some((point) => point.year === year)
+                ),
+                availableYears: [],
+                notes: [],
+              });
+            }
+          }
+        }
+
+        if (!usedNationalTable) {
+          for (const item of resolvedRegions) {
+            if (!item.resolved) {
+              seriesList.push({
+                region: item.regionName, domain: "?", domainName: item.regionName, varId: null,
+                varTitle: query, points: [], missingYears: parsed.years, availableYears: [],
+                notes: ["Wilayah tidak ditemukan."],
+              });
+              continue;
+            }
+            const series = await buildRegionSeries(
+              client,
+              store,
+              query,
+              item.regionName,
+              item.resolved.domainId,
+              item.resolved.domainName,
+              { years: parsed.years, maxCandidates: 6 }
+            );
+            seriesList.push(series);
+          }
+        }
+
+        const withData = seriesList.filter((series) => series.points.length > 0);
+        if (withData.length === 0) {
+          const detail = seriesList.map((series) => `- ${series.region}: ${series.notes.join(" ") || "tidak ada data"}`);
           return {
-            content: [{ type: "text", text: "compare_data hanya mendukung 1 tahun. Gunakan get_trend per wilayah untuk multi-tahun." }],
-            isError: true,
+            content: [{
+              type: "text",
+              text: appendAttribution(
+                `Tidak ada data "${query}"${spec ? ` untuk ${spec}` : ""} di ${regionList.join(", ")}.\n\n${detail.join("\n")}\n\n` +
+                `**Saran:** pakai find_variable(keyword="${query}", domain="<kode provinsi>") untuk melihat variabel yang tersedia, atau get_ranking untuk membandingkan seluruh provinsi.`
+              ),
+            }],
           };
         }
 
-        const results: Array<{
-          region: string;
-          domain: string;
-          value: string;
-          rawValue: number | null;
-          unit?: string;
-          varTitle: string;
-          period?: string;
-        }> = [];
+        const varTitle = withData[0].varTitle || query;
+        const sameTitle = new Set(withData.map((series) => series.varTitle)).size === 1;
+        const displayTitle = sameTitle
+          ? varTitle
+          : query.charAt(0).toUpperCase() + query.slice(1);
 
-        for (const regionName of regionList) {
-          const resolved = await resolver.resolve(regionName);
-          if (!resolved) {
-            results.push({ region: regionName, domain: "?", value: "Wilayah tidak ditemukan", rawValue: null, varTitle: "" });
-            continue;
-          }
-
-          const { domainId, domainName } = resolved;
-          const data = await fetchDataForDomain(client, store, query, domainId, year);
-          results.push({
-            region: domainName,
-            domain: domainId,
-            value: data.value,
-            rawValue: data.rawValue,
-            unit: data.unit,
-            varTitle: data.varTitle,
-            period: data.period,
+        // Provinces sometimes expose the same count in different units
+        // ("Ribu Jiwa" vs "Juta Jiwa"). Normalize before diffing, otherwise
+        // the "Selisih" column is nonsense.
+        const originalUnits = [...new Set(withData.map((series) => series.unit).filter(Boolean))];
+        const massScale = (unit?: string): number | null => {
+          const normalized = (unit ?? "").toLowerCase().trim();
+          if (normalized === "juta jiwa" || normalized === "juta orang") return 1000;
+          if (normalized === "ribu jiwa" || normalized === "ribu orang") return 1;
+          if (normalized === "jiwa" || normalized === "orang") return 0.001;
+          return null;
+        };
+        const scales = withData.map((series) => massScale(series.unit));
+        const canNormalize = withData.length > 1 && scales.every((scale) => scale !== null);
+        let unitNote = "";
+        if (canNormalize) {
+          withData.forEach((series, index) => {
+            const scale = scales[index] as number;
+            series.points = series.points.map((point) => ({ ...point, value: point.value * scale }));
+            series.unit = "Ribu Jiwa";
           });
+          if (originalUnits.length > 1) {
+            unitNote = `Satuan diseragamkan ke Ribu Jiwa (asli: ${originalUnits.join(", ")}).`;
+          }
         }
 
-        // Format output
-        const varTitle = results.find(r => r.varTitle)?.varTitle || query;
-        const showPeriod = !year;
-        const lines = [
-          `## Perbandingan: ${varTitle}`,
-          year ? `**Tahun:** ${year}` : "**Tahun:** Terbaru",
-          "",
-          showPeriod ? "| Wilayah | Nilai | Periode |" : "| Wilayah | Nilai |",
-          showPeriod ? "| --- | --- | --- |" : "| --- | --- |",
+        const units = new Set(withData.map((series) => series.unit).filter(Boolean));
+        const unitLabel = units.size === 1 ? formatUnit([...units][0]) : "";
+        const seriesLabel = withData.find((series) => series.seriesLabel)?.seriesLabel;
+
+        const formatValue = (series: RegionSeries, value: number) => {
+          const unit = formatUnit(series.unit);
+          return `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ""}`;
+        };
+
+        const unitInTitle = unitLabel
+          ? new RegExp(`\\(${unitLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "i").test(displayTitle)
+          : true;
+        const lines: string[] = [
+          `## Perbandingan: ${displayTitle}${unitLabel && !unitInTitle ? ` (${unitLabel})` : ""}`,
+          `**Wilayah:** ${withData.map((series) => series.domainName).join(", ")}`,
         ];
 
-        for (const r of results) {
-          lines.push(showPeriod ? `| ${r.region} | ${r.value} | ${r.period ?? "-"} |` : `| ${r.region} | ${r.value} |`);
-        }
+        if (!multiYear) {
+          const first = withData[0];
+          const periodLabel = first.points[0]?.label ?? "";
+          lines.push(`**Periode:** ${periodLabel || "Terbaru"}${seriesLabel ? ` | **Seri:** ${seriesLabel}` : ""}`, "");
 
-        // Add analysis hint (use the raw numeric value, not the localized string)
-        const numericResults = results.filter(
-          (result): result is typeof result & { rawValue: number } => result.rawValue !== null
-        );
-        if (numericResults.length >= 2) {
-          const values = [...numericResults].sort((a, b) => b.rawValue - a.rawValue);
-          lines.push("");
-          lines.push(`**Tertinggi:** ${values[0].region} (${values[0].value})`);
-          lines.push(`**Terendah:** ${values[values.length - 1].region} (${values[values.length - 1].value})`);
+          if (parsed.hasSpec || (spec && !year)) {
+            // fall through to table
+          }
+          lines.push("| Wilayah | Nilai | Periode |", "| --- | --- | --- |");
+          for (const series of seriesList) {
+            const point = series.points[0];
+            lines.push(
+              point
+                ? `| ${series.region} | ${formatValue(series, point.value)} | ${point.label} |`
+                : `| ${series.region} | N/A | - |`
+            );
+          }
 
-          const units = new Set(numericResults.map((result) => result.unit).filter(Boolean));
+          const numeric = seriesList
+            .filter((series) => series.points.length > 0)
+            .map((series) => ({ region: series.region, value: series.points[0].value, text: formatValue(series, series.points[0].value) }));
+          if (numeric.length >= 2) {
+            const sorted = [...numeric].sort((a, b) => b.value - a.value);
+            lines.push("");
+            lines.push(`**Tertinggi:** ${sorted[0].region} (${sorted[0].text})`);
+            lines.push(`**Terendah:** ${sorted[sorted.length - 1].region} (${sorted[sorted.length - 1].text})`);
+          }
           if (units.size > 1) {
             lines.push("", `_Catatan: satuan berbeda antar wilayah (${[...units].join(", ")}); bandingkan dengan hati-hati._`);
           }
+        } else {
+          const yearKeys = [...new Set(
+            withData.flatMap((series) => series.points.map((point) => point.year))
+          )].sort();
+
+          const yearRange = yearKeys.length > 1 ? `${yearKeys[0]}–${yearKeys[yearKeys.length - 1]}` : yearKeys[0];
+          lines.push(`**Periode:** ${yearRange}${seriesLabel ? ` | **Seri:** ${seriesLabel}` : ""}`, "");
+
+          const header = ["Tahun", ...withData.map((series) => series.region)];
+          if (withData.length === 2) header.push("Selisih");
+          lines.push(`| ${header.join(" | ")} |`);
+          lines.push(`| ${header.map(() => "---").join(" | ")} |`);
+
+          for (const key of yearKeys) {
+            const cells = withData.map((series) => {
+              const point = series.points.find((candidate) => candidate.year === key);
+              return point ? formatValue(series, point.value) : "-";
+            });
+            const row = [key, ...cells];
+            if (withData.length === 2) {
+              const left = withData[0].points.find((point) => point.year === key)?.value;
+              const right = withData[1].points.find((point) => point.year === key)?.value;
+              const diff = left !== undefined && right !== undefined
+                ? (left - right).toLocaleString("id-ID", { maximumFractionDigits: 2 })
+                : "-";
+              row.push(diff);
+            }
+            lines.push(`| ${row.join(" | ")} |`);
+          }
+
+          lines.push("");
+          for (const series of withData) {
+            const points = series.points;
+            if (points.length < 2) {
+              lines.push(`**${series.region}:** hanya 1 tahun data (${points[0]?.year}).`);
+              continue;
+            }
+            const first = points[0];
+            const last = points[points.length - 1];
+            const diff = last.value - first.value;
+            const pct = first.value !== 0 ? ((diff / first.value) * 100).toFixed(1) : null;
+            const direction = diff > 0 ? "naik" : diff < 0 ? "turun" : "stabil";
+            lines.push(
+              `**${series.region}:** ${direction} ${pct !== null ? `${pct}% ` : ""}dari ` +
+              `${first.value.toLocaleString("id-ID")} (${first.year}) ke ${last.value.toLocaleString("id-ID")} (${last.year})`
+            );
+          }
+        }
+
+        const extraNotes = seriesList.flatMap((series) =>
+          series.notes.map((note) => `${series.region}: ${note}`)
+        );
+        if (unitNote) extraNotes.unshift(unitNote);
+        if (usedNationalTable) {
+          extraNotes.unshift(
+            "Satu tabel nasional dipakai untuk semua wilayah, sehingga satuan dan presisinya konsisten."
+          );
+        }
+        if (extraNotes.length > 0) {
+          lines.push("", "_Catatan:_");
+          for (const note of [...new Set(extraNotes)]) lines.push(`- ${note}`);
+        }
+
+        const sourceKeys = new Set<string>();
+        const sources = seriesList
+          .filter((series) => series.varId !== null)
+          .filter((series) => {
+            const key = `${series.varId}:${series.domain}`;
+            if (sourceKeys.has(key)) return false;
+            sourceKeys.add(key);
+            return true;
+          })
+          .map((series) => {
+            const shared = seriesList.filter((other) => other.varId === series.varId && other.domain === series.domain);
+            const who = shared.length > 1 ? "semua wilayah" : series.region;
+            return `${who}: ${series.varTitle} (var ${series.varId}, domain ${series.domain})`;
+          });
+        if (sources.length > 0) {
+          lines.push("", `_Sumber variabel — ${sources.join("; ")}._`);
+          lines.push(
+            "_Angka di atas diambil dari baris agregat resmi tiap tabel; jangan menjumlahkan baris kabupaten/kota._"
+          );
         }
 
         return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
@@ -143,7 +336,9 @@ Contoh query user yang cocok untuk tool ini:
   server.tool(
     "get_trend",
     `Ambil data time-series (tren multi-tahun) dalam 1 langkah.
-Gunakan tool ini ketika user ingin melihat perkembangan/tren data dari tahun ke tahun.
+Gunakan tool ini ketika user ingin melihat perkembangan/tren data dari SATU wilayah.
+Untuk membandingkan beberapa wilayah sekaligus (termasuk multi-tahun), pakai
+compare_data dengan \`years\`/\`start_year\`/\`end_year\` — satu panggilan untuk semuanya.
 
 Contoh query user yang cocok untuk tool ini:
 - "tren kemiskinan Indonesia 2019-2023"
@@ -153,10 +348,13 @@ Contoh query user yang cocok untuk tool ini:
     {
       query: z.string().describe("Indikator yang dianalisis (misal: kemiskinan, pengangguran, IPM)"),
       region: z.string().default("Indonesia").describe("Nama wilayah"),
+      wilayah: z.string().optional().describe("Alias untuk 'region'."),
       start_year: z.string().default("2019").describe("Tahun awal"),
       end_year: z.string().default("2024").describe("Tahun akhir"),
+      years: z.string().optional().describe("Alternatif rentang: '2021-2025' atau '2021,2022,2023' (mengalahkan start/end)."),
     },
-    async ({ query, region, start_year, end_year }) => {
+    async ({ query, region: regionInput, wilayah, start_year, end_year, years }) => {
+      const region = regionInput || wilayah || "Indonesia";
       try {
         // Resolve domain
         let domain = "0000";
@@ -170,169 +368,107 @@ Contoh query user yang cocok untuk tool ini:
           domainName = resolved.domainName;
         }
 
-        const startNum = parseInt(start_year, 10);
-        const endNum = parseInt(end_year, 10);
-        if (!Number.isFinite(startNum) || !Number.isFinite(endNum) || startNum > endNum) {
+        const spec = years ?? `${start_year}-${end_year}`;
+        const parsedYears = parseYearSpec(spec);
+        const yearList = parsedYears.years;
+
+        if (yearList.length === 0) {
           return { content: [{ type: "text", text: "Rentang tahun tidak valid." }], isError: true };
         }
-        if (endNum - startNum > 10) {
+        if (yearList.length > 11) {
           return {
             content: [{ type: "text", text: "Rentang maksimal 10 tahun per panggilan. Pecah menjadi beberapa rentang." }],
             isError: true,
           };
         }
-        const years = Array.from({ length: endNum - startNum + 1 }, (_, index) => String(startNum + index));
 
-        // Resolve variable that actually has the requested years.
-        const resolved = await resolveVariableForYears(client, store, query, domain, years, {
-          maxCandidates: 20,
+        const series = await buildRegionSeries(client, store, query, region, domain, domainName, {
+          years: yearList,
+          maxCandidates: 6,
         });
-        let varData = resolved?.varData ?? null;
-        const matchedYears = resolved?.matchedYears ?? [];
-        if (!varData || (years.length > 0 && matchedYears.length === 0)) {
-          // Fallback: strategic indicators (headline only)
-          const indicators = await client.listStrategicIndicators(domain);
-          const kw2 = normalizeKeyword(query);
-          for (const ind of indicators.data ?? []) {
-            const title = ind.title.toLowerCase();
-            if (title.includes(kw2) || kw2.split(/\s+/).some((word) => word.length > 2 && title.includes(word))) {
-              const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
-              const unit = formatUnit(ind.unit);
-              const lines = [
-                `## Tren/Headline ${ind.title}`,
-                `**Wilayah:** ${domainName} (${domain})`,
-                "",
-                `*Catatan: Menggunakan data headline indikator strategis karena variabel time-series lengkap tidak ditemukan.*`,
-                "",
-                `| Periode | Nilai |`,
-                `| --- | --- |`,
-                `| ${ind.periode} | ${val}${unit ? ` ${unit}` : ""} |`,
-              ];
-              if (ind.name) lines.push("", `_${ind.name}_`);
-              return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
+
+        if (series.points.length === 0) {
+          // Fallback: headline strategic indicators are often the only series
+          // BPS exposes for topics like inflasi (monthly, latest month only).
+          try {
+            const indicators = await client.listStrategicIndicators(domain);
+            const kw = normalizeKeyword(query);
+            for (const ind of indicators.data ?? []) {
+              const title = ind.title.toLowerCase();
+              if (
+                title.includes(kw) ||
+                kw.split(/\s+/).some((word) => word.length > 2 && title.includes(word))
+              ) {
+                const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
+                const unit = formatUnit(ind.unit);
+                const headline = [
+                  `## Tren/Headline ${ind.title}`,
+                  `**Wilayah:** ${domainName} (${domain})`,
+                  "",
+                  "*Catatan: menggunakan data headline indikator strategis karena variabel time-series tidak ditemukan.*",
+                  "",
+                  "| Periode | Nilai |",
+                  "| --- | --- |",
+                  `| ${ind.periode} | ${val}${unit ? ` ${unit}` : ""} |`,
+                ];
+                if (ind.name) headline.push("", `_${ind.name}_`);
+                return { content: [{ type: "text", text: appendAttribution(headline.join("\n")) }] };
+              }
             }
+          } catch {
+            // fall through to the diagnostic message
           }
-          return { content: [{ type: "text", text: appendAttribution(`Tidak ditemukan variabel "${query}" untuk ${domainName}.`) }] };
-        }
 
-        let periods = resolved?.periods ?? [];
-        if (periods.length === 0) {
-          await invalidateVar(query, domain, store);
-          const retry = await searchVariables(client, domain, query, { maxCandidates: 10 });
-          const retryVar = retry[0];
-          if (!retryVar) {
-            return { content: [{ type: "text", text: appendAttribution(`Tidak ditemukan variabel "${query}" untuk ${domainName}.`) }] };
-          }
-          varData = retryVar;
-          periods = await listAllPeriodsSafe(client, domain, varData.var_id);
-        }
-
-        const yearToPeriod = new Map<string, string>();
-        for (const period of periods) {
-          const label = getPeriodLabel(period);
-          const periodYear = label.match(/\d{4}/)?.[0];
-          const id = getPeriodId(period);
-          if (!periodYear || !id || !years.includes(periodYear)) continue;
-          if (!yearToPeriod.has(periodYear)) yearToPeriod.set(periodYear, id);
-        }
-
-        const periodIds = years.map((year) => yearToPeriod.get(year)).filter((id): id is string => !!id);
-        if (periodIds.length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Tidak ada data periode ${start_year}-${end_year} untuk variabel ini.`) }] };
-        }
-
-        const result = await client.getDynamicData(domain, String(varData.var_id), periodIds.join(","));
-        if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Data tidak tersedia untuk periode ${start_year}-${end_year}.`) }] };
-        }
-
-        const periodLabels = new Map<string, string>();
-        for (const period of result.tahun ?? []) {
-          periodLabels.set(getPeriodId(period), getPeriodLabel(period));
-        }
-
-        const aggregateVervar = selectAggregateVervar(result, domain, domainName);
-        const selectedTurth = selectTrendTurth(
-          result.turtahun ?? [],
-          Object.keys(result.datacontent ?? {}),
-          periodIds
-        );
-        const vervarEntries = getVervarEntries(result);
-        if (!aggregateVervar && vervarEntries.length > 10) {
+          const notes = series.notes.length > 0 ? `\n\n${series.notes.join("\n")}` : "";
           return {
             content: [{
               type: "text",
               text: appendAttribution(
-                `Variabel "${getVariableTitle(varData) || varData.title}" tidak memiliki baris agregat nasional ` +
-                `(hanya ${vervarEntries.length} provinsi/kategori). Gunakan get_trend dengan region provinsi, ` +
-                `atau get_ranking untuk membandingkan seluruh provinsi.`
+                `Tidak ada data "${query}" untuk ${domainName} pada ${spec}.${notes}\n\n` +
+                `**Saran:** find_variable(keyword="${query}", domain="${domain}") untuk melihat variabel dan cakupan tahunnya.`
               ),
             }],
           };
         }
-        const sortedPeriodIds = [...periodIds].sort((a, b) => b.length - a.length);
-        const trendData: Array<{ year: string; value: number }> = [];
 
-        for (const [key, value] of Object.entries(result.datacontent)) {
-          if (typeof value !== "number") continue;
-          if (aggregateVervar && extractVervarId(key, result) !== aggregateVervar) continue;
-          if (selectedTurth?.id && !key.endsWith(selectedTurth.id)) continue;
-
-          const periodId = sortedPeriodIds.find((id) => key.includes(id));
-          if (!periodId) continue;
-          const label = periodLabels.get(periodId) ?? periodId;
-          if (trendData.some((item) => item.year === label)) continue;
-          trendData.push({ year: label, value });
-        }
-
-        trendData.sort((a, b) => a.year.localeCompare(b.year));
-
-        if (trendData.length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Data tren tidak dapat di-parse.`) }] };
-        }
-
-        // Format output
-        const unit = formatUnit(getVariableUnit(varData) ?? varData.unit);
-        const title = getVariableTitle(varData) || varData.title;
+        const unit = formatUnit(series.unit);
         const lines = [
-          `## Tren ${title}${unit ? ` (${unit})` : ""}`,
-          `**Wilayah:** ${domainName} | **Periode:** ${start_year}–${end_year}`,
+          `## Tren ${series.varTitle}${unit ? ` (${unit})` : ""}`,
+          `**Wilayah:** ${domainName} | **Periode:** ${yearList[0]}–${yearList[yearList.length - 1]}`,
         ];
-        if (selectedTurth && !isNeutralPeriodLabel(selectedTurth.label)) {
-          lines.push(`**Seri:** ${selectedTurth.label}`);
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember/i.test(selectedTurth.label)) {
-            lines.push(`_Catatan: variabel ini bulanan; nilai yang ditampilkan adalah bulan ${selectedTurth.label} pada setiap tahun._`);
+        if (series.seriesLabel) {
+          lines.push(`**Seri:** ${series.seriesLabel}`);
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|semester/i.test(series.seriesLabel)) {
+            lines.push(`_Catatan: variabel ini punya beberapa sub-periode; nilai yang ditampilkan adalah seri ${series.seriesLabel} pada setiap tahun._`);
           }
         }
-        const missingYears = years.filter((year) => !matchedYears.includes(year));
-        if (missingYears.length > 0 && matchedYears.length > 0) {
-          lines.push(`**Catatan:** tahun ${missingYears.join(", ")} tidak tersedia untuk variabel ini.`);
+        if (series.missingYears.length > 0 && series.points.length > 0) {
+          lines.push(`**Catatan:** tahun ${series.missingYears.join(", ")} tidak tersedia untuk variabel ini.`);
         }
         lines.push("", "| Periode | Nilai | Perubahan |", "| --- | --- | --- |");
 
-        for (let i = 0; i < trendData.length; i++) {
-          const d = trendData[i];
+        for (let i = 0; i < series.points.length; i++) {
+          const point = series.points[i];
           let change = "-";
           if (i > 0) {
-            const previous = trendData[i - 1].value;
-            const diff = d.value - previous;
+            const previous = series.points[i - 1].value;
+            const diff = point.value - previous;
             if (previous !== 0) {
               const pct = ((diff / previous) * 100).toFixed(1);
               change = `${diff > 0 ? "+" : ""}${pct}%`;
             }
           }
-          lines.push(`| ${d.year} | ${d.value.toLocaleString("id-ID")} | ${change} |`);
+          lines.push(`| ${point.year} | ${point.value.toLocaleString("id-ID")} | ${change} |`);
         }
 
-        // Summary
-        if (trendData.length >= 2) {
-          const first = trendData[0].value;
-          const last = trendData[trendData.length - 1].value;
-          if (first !== 0) {
-            const totalChange = ((last - first) / first * 100).toFixed(1);
-            const trend = last > first ? "naik" : last < first ? "turun" : "stabil";
+        if (series.points.length >= 2) {
+          const first = series.points[0];
+          const last = series.points[series.points.length - 1];
+          if (first.value !== 0) {
+            const totalChange = ((last.value - first.value) / first.value * 100).toFixed(1);
+            const trend = last.value > first.value ? "naik" : last.value < first.value ? "turun" : "stabil";
             lines.push("");
-            lines.push(`**Tren:** ${trend} ${totalChange}% dari ${trendData[0].year} ke ${trendData[trendData.length - 1].year}`);
+            lines.push(`**Tren:** ${trend} ${totalChange}% dari ${first.year} ke ${last.year}`);
           }
         }
 
@@ -535,130 +671,6 @@ async function listAllPeriodsSafe(client: BpsClient, domain: string, varId: numb
     return maybeAll.call(client, domain, varId);
   }
   return client.listPeriods(domain, varId);
-}
-
-function selectTrendTurth(
-  turthList: unknown[],
-  datacontentKeys: string[],
-  periodIds: string[]
-): { id: string; label: string } | null {
-  const entries = turthList
-    .map((item) => ({ id: getTurthId(item), label: getTurthLabel(item) }))
-    .filter((entry) => entry.id !== "");
-  if (entries.length === 0) return null;
-
-  // BPS often lists series (annual, monthly, semester) that are not present for
-  // every requested year. Count actual coverage and pick the best one instead
-  // of selecting "Tahunan" and silently dropping years where it is missing.
-  const scored = entries
-    .map((entry) => {
-      const coverage = periodIds.filter((periodId) =>
-        datacontentKeys.some((key) => key.includes(periodId) && key.endsWith(entry.id))
-      ).length;
-      return { entry, coverage };
-    })
-    .filter((candidate) => candidate.coverage > 0)
-    .sort((a, b) => b.coverage - a.coverage);
-
-  if (scored.length === 0) return null;
-
-  const bestCoverage = scored[0].coverage;
-  const best = scored.filter((candidate) => candidate.coverage === bestCoverage).map((candidate) => candidate.entry);
-
-  const annual = best.find((entry) => isNeutralPeriodLabel(entry.label));
-  if (annual) return annual;
-
-  const firstSemester = best.find((entry) => /semester\s*1/i.test(entry.label));
-  if (firstSemester) return firstSemester;
-
-  const december = best.find((entry) => /desember/i.test(entry.label));
-  if (december) return december;
-
-  return best[0];
-}
-
-/** Fetch a single aggregate value for a domain + query + year. */
-async function fetchDataForDomain(
-  client: BpsClient,
-  store: IPersistentStore | null,
-  query: string,
-  domain: string,
-  year: string | undefined
-): Promise<{ value: string; rawValue: number | null; unit?: string; varTitle: string; period?: string }> {
-  const yearList = year ? [year] : [];
-  const resolved = await resolveVariableForYears(client, store, query, domain, yearList, {
-    maxCandidates: 20,
-  });
-  let varData = resolved?.varData ?? null;
-
-  if (yearList.length > 0 && (!resolved || resolved.matchedYears.length === 0)) {
-    varData = null;
-  }
-
-  if (!varData) {
-    const indicators = await client.listStrategicIndicators(domain);
-    const kw = normalizeKeyword(query);
-    for (const indicator of indicators.data ?? []) {
-      const title = indicator.title.toLowerCase();
-      if (title.includes(kw) || kw.split(/\s+/).some((word) => word.length > 2 && title.includes(word))) {
-        if (year && !indicator.periode.includes(year)) continue;
-        const unit = formatUnit(indicator.unit);
-        const rawValue = typeof indicator.value === "number" ? indicator.value : null;
-        const formatted = typeof indicator.value === "number"
-          ? indicator.value.toLocaleString("id-ID")
-          : String(indicator.value);
-        return {
-          value: `${formatted}${unit ? ` ${unit}` : ""} (${indicator.periode})`,
-          rawValue,
-          unit,
-          varTitle: indicator.title,
-          period: indicator.periode,
-        };
-      }
-    }
-    return { value: "N/A", rawValue: null, varTitle: "" };
-  }
-
-  let periods = resolved?.periods ?? [];
-  if (periods.length === 0) {
-    await invalidateVar(query, domain, store);
-    const retry = await searchVariables(client, domain, query, { maxCandidates: 10 });
-    const retryVar = retry[0];
-    if (!retryVar) return { value: "N/A", rawValue: null, varTitle: "" };
-    varData = retryVar;
-    periods = await listAllPeriodsSafe(client, domain, varData.var_id);
-  }
-
-  let selectedPeriod = year
-    ? periods.find((period) => getPeriodLabel(period).includes(year))
-    : periods[0];
-  // With an explicit year, never silently fall back to a different year.
-  if (!selectedPeriod && year) {
-    return {
-      value: "N/A",
-      rawValue: null,
-      varTitle: getVariableTitle(varData) || varData.title,
-    };
-  }
-  if (!selectedPeriod) selectedPeriod = periods[0];
-
-  const periodId = selectedPeriod ? getPeriodId(selectedPeriod) : "";
-  const periodLabel = selectedPeriod ? getPeriodLabel(selectedPeriod) : "";
-  const result = await client.getDynamicData(domain, String(varData.var_id), periodId || undefined);
-  const rawValue = getAggregateValue(result, domain);
-  const unit = formatUnit(getVariableUnit(varData) ?? varData.unit);
-
-  if (rawValue === null) {
-    return { value: "N/A", rawValue: null, unit, varTitle: getVariableTitle(varData) || varData.title, period: periodLabel };
-  }
-
-  return {
-    value: `${rawValue.toLocaleString("id-ID")}${unit ? ` ${unit}` : ""}`,
-    rawValue,
-    unit,
-    varTitle: getVariableTitle(varData) || varData.title,
-    period: periodLabel,
-  };
 }
 
 /** Resolve a national variable that breaks down by province, for rankings. */

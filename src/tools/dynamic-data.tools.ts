@@ -4,7 +4,13 @@ import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
 import { formatDynamicData, formatList, buildStructuredPayload } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
+import { DOMAIN_ALIASES } from "../config/domain-aliases.js";
 import { formatErrorForUser } from "../utils/error.js";
+import {
+  describeMissingYears,
+  parseYearSpec,
+  resolvePeriodsForSpec,
+} from "../services/period-resolver.js";
 import {
   formatUnit,
   getPeriodId,
@@ -20,6 +26,37 @@ import {
   getVervarId,
   getVervarLabel,
 } from "../client/fields.js";
+
+
+/** Province names, derived from the alias table (codes like 3500). */
+const PROVINCE_LABELS: Set<string> = new Set(
+  Object.entries(DOMAIN_ALIASES)
+    .filter(([, code]) => code.length === 4 && code !== "0000" && code.endsWith("00"))
+    .map(([name]) => name)
+);
+
+function normalizeRegionLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/\b(provinsi|propinsi|prov)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** When a table lists many kab/kota, point at its official aggregate row. */
+function aggregateRowNote(result: { vervar?: unknown[] }): string | null {
+  const entries = (result.vervar ?? [])
+    .map((vervar) => ({ id: getVervarId(vervar), label: getVervarLabel(vervar) }))
+    .filter((entry) => entry.label !== "");
+  if (entries.length <= 10) return null;
+  const hit =
+    entries.find((entry) => PROVINCE_LABELS.has(normalizeRegionLabel(entry.label))) ??
+    entries.find((entry) => /^(provinsi|propinsi)\b/i.test(entry.label)) ??
+    entries.find((entry) => /\bindonesia\b/i.test(entry.label)) ??
+    entries.find((entry) => /^(total|jumlah)$/i.test(entry.label));
+  if (!hit) return null;
+  return `Tabel memuat ${entries.length} kategori; baris agregat "${hit.label}" adalah angka resmi wilayah — pakai baris itu, jangan menjumlahkan kabupaten/kota.`;
+}
 
 export function registerDynamicDataTools(server: McpServer, client: BpsClient, config: Config): void {
   server.tool(
@@ -227,12 +264,16 @@ Semua baris diambil (BPS membatasi 10 per halaman, server menggabungkan seluruh 
     `Ambil data dari tabel dinamis BPS. Tool ini membutuhkan ID variabel yang spesifik.
 
 PENTING: Gunakan find_data terlebih dahulu untuk pencarian otomatis. Gunakan tool ini hanya jika sudah tahu var_id.
-Jika parameter th dikosongkan, server otomatis memilih periode terbaru yang tersedia. Untuk beberapa tahun, pisahkan dengan koma (contoh: '2020,2021,2022,2023'); server akan memecahnya karena BPS membatasi maksimal 3 periode per request.
+Parameter 'th' menerima TAHUN (bukan hanya ID periode): '2023', '2020,2021,2022',
+rentang '2021-2025', atau ID periode mentah. Server menerjemahkan tahun ke ID
+periode; TIDAK perlu memanggil list_periods lebih dulu. Jika 'th' dikosongkan,
+server memakai periode terbaru. Tahun yang tidak tersedia dilaporkan di catatan.
 
 Variabel umum (nasional, domain=0000):
 - 2781: Jumlah Penduduk menurut Provinsi dan Jenis Kelamin
-- 184: Persentase Penduduk Miskin (P0)
-- 183: Jumlah Penduduk Miskin Menurut Wilayah
+- 185: Jumlah Penduduk Miskin menurut Provinsi (Ribu Jiwa) — pakai ini untuk angka per provinsi
+- 192: Persentase Penduduk Miskin (P0) menurut Provinsi
+- 183: Jumlah Penduduk Miskin menurut Wilayah (hanya Kota/Desa, bukan provinsi)
 - 543: Tingkat Pengangguran Terbuka Menurut Provinsi (%)
 - 413: [Metode Baru] Indeks Pembangunan Manusia (IPM)
 - 98: Gini Ratio Menurut Provinsi dan Daerah
@@ -240,40 +281,109 @@ Variabel umum (nasional, domain=0000):
 
 Gunakan find_variable untuk mencari ID variabel lainnya.`,
     {
-      domain: z.string().describe("Kode domain BPS. '0000' untuk nasional."),
-      var: z.string().describe("ID variabel (bisa beberapa, pisahkan dengan koma). Contoh: '1452' atau '1452,1453'"),
-      th: z.string().optional().describe("Kode periode/tahun (bisa beberapa, pisahkan koma, contoh: '2023' atau '2020,2021,2022'). Jika kosong, server memakai periode terbaru."),
+      domain: z.string().default("0000").describe("Kode domain BPS. '0000' untuk nasional."),
+      var: z.union([z.string(), z.number()]).optional().describe("ID variabel (string atau angka; bisa beberapa, pisahkan dengan koma). Contoh: '1452' atau 421."),
+      var_id: z.union([z.string(), z.number()]).optional().describe("Alias untuk 'var'."),
+      th: z.string().optional().describe("Tahun atau ID periode. Contoh: '2023', '2020,2021,2022', '2021-2025'. Jika kosong, server memakai periode terbaru."),
       turvar: z.string().optional().describe("Kode turunan variabel"),
       vervar: z.string().optional().describe("Kode variabel vertikal"),
       turth: z.string().optional().describe("Kode turunan periode"),
       format: z.enum(["markdown", "json"]).default("markdown").describe("'markdown' untuk dibaca, 'json' untuk baris terstruktur {indicator, category, series, period, subperiod, value, unit}"),
     },
-    async ({ domain, var: varId, th, turvar, vervar, turth, format }) => {
+    async ({ domain, var: rawVar, var_id, th, turvar, vervar, turth, format }) => {
       try {
-        let period = th;
-        let autoPeriodNote = "";
+        const varArg = rawVar ?? var_id;
+        if (varArg === undefined || varArg === null || String(varArg).trim() === "") {
+          return {
+            content: [{
+              type: "text",
+              text: "Parameter 'var' wajib diisi dengan ID variabel, misal get_dynamic_data(domain=\"3500\", var=\"421\", th=\"2021-2025\"). Cari ID dengan find_variable.",
+            }],
+            isError: true,
+          };
+        }
+        const varId = String(varArg);
+        const firstVar = varId.split(/[,;]/)[0]?.trim();
+        const numericVar = Number(firstVar);
+        const hasNumericVar = Number.isFinite(numericVar) && numericVar > 0;
 
-        // BPS requires `th` for many variables. If the caller omitted it, resolve
-        // the latest available period instead of letting the API return 400.
-        if (!period) {
-          const firstVar = varId.split(/[,;]/)[0]?.trim();
-          const numericVar = Number(firstVar);
-          if (Number.isFinite(numericVar) && numericVar > 0) {
-            try {
-              const periods = await client.listPeriods(domain, numericVar, 1);
-              const latest = periods[0];
-              const latestId = latest ? getPeriodId(latest) : "";
-              if (latestId) {
-                period = latestId;
-                autoPeriodNote = `\n\n_Periode terbaru dipilih otomatis: ${getPeriodLabel(latest)} (ID: ${latestId})._`;
-              }
-            } catch {
-              // Fall through and let the API report the missing period.
+        let period = th;
+        let periodNote = "";
+        let periodsUsed: Array<{ id: string; label: string }> = [];
+
+        // Years → period IDs. BPS only accepts IDs, and answering an unknown
+        // year with an empty dataset wastes the caller's next few calls.
+        if (hasNumericVar) {
+          const spec = parseYearSpec(th);
+          if (spec.hasSpec || !period) {
+            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, th);
+            if (resolved.entries.length === 0) {
+              const yearText = spec.years.length > 0 ? spec.years.join(", ") : String(th);
+              const available = resolved.availableLabels.length > 0
+                ? `Periode tersedia: ${resolved.availableLabels.join(", ")}`
+                : "Variabel ini tidak memiliki daftar periode yang bisa dibaca.";
+              return {
+                content: [{
+                  type: "text",
+                  text: appendAttribution(
+                    `Tidak ada data untuk periode ${yearText} pada variabel ${numericVar} (domain ${domain}).\n\n${available}\n\n` +
+                    `**Saran:** pakai tahun lain, atau panggil find_variable(keyword="...", domain="${domain}") untuk variabel dengan cakupan tahun yang diinginkan.`
+                  ),
+                }],
+                isError: true,
+              };
             }
+            period = resolved.entries.map((entry) => entry.id).join(";");
+            periodsUsed = resolved.entries.map((entry) => ({ id: entry.id, label: entry.label }));
+
+            const notes: string[] = [];
+            const missing = describeMissingYears(resolved.missingYears, resolved.availableYears);
+            if (missing) notes.push(missing);
+            if (!spec.hasSpec) {
+              notes.push(`Periode terbaru dipilih otomatis: ${resolved.entries[0].label} (ID: ${resolved.entries[0].id}).`);
+            }
+            periodNote = notes.join(" ");
           }
         }
 
-        const result = await client.getDynamicData(domain, varId, period, turvar, vervar, turth);
+        let result;
+        try {
+          result = await client.getDynamicData(domain, varId, period, turvar, vervar, turth);
+        } catch (error) {
+          if (hasNumericVar) {
+            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, undefined).catch(() => null);
+            const available = resolved?.availableLabels.length
+              ? ` Periode tersedia: ${resolved.availableLabels.join(", ")}.`
+              : "";
+            throw new Error(
+              `${error instanceof Error ? error.message : "Gagal mengambil data"}${available}`,
+              { cause: error }
+            );
+          }
+          throw error;
+        }
+
+        const rowCount = Object.keys(result.datacontent ?? {}).length;
+        if (rowCount === 0) {
+          // Never return a silent empty payload: say which periods do have data.
+          let available = "";
+          if (hasNumericVar) {
+            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, undefined).catch(() => null);
+            if (resolved?.availableYears.length) {
+              available = ` Tahun tersedia: ${resolved.availableYears.join(", ")}.`;
+            }
+          }
+          return {
+            content: [{
+              type: "text",
+              text: appendAttribution(
+                `Data kosong untuk var ${varId} (domain ${domain}) pada periode yang diminta.${available}\n\n` +
+                `**Saran:** cek kombinasi turvar/vervar, atau pakai get_ranking/find_data.`
+              ),
+            }],
+            isError: true,
+          };
+        }
 
         if (format === "json") {
           const payload = buildStructuredPayload(result, domain);
@@ -281,7 +391,13 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
             content: [{
               type: "text",
               text: JSON.stringify(
-                { ...payload, period: period ?? null, autoPeriodNote: autoPeriodNote.trim() || undefined },
+                {
+                  ...payload,
+                  period: period ?? null,
+                  periodsUsed,
+                  autoPeriodNote: periodNote || undefined,
+                  aggregateNote: aggregateRowNote(result) || undefined,
+                },
                 null,
                 2
               ),
@@ -290,7 +406,10 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
         }
 
         const text = formatDynamicData(result, domain, config.defaultLang, { includeAttribution: false });
-        return { content: [{ type: "text", text: appendAttribution(text + autoPeriodNote) }] };
+        const aggregateNote = aggregateRowNote(result);
+        const notes = [periodNote, aggregateNote].filter(Boolean).join(" ");
+        const suffix = notes ? `\n\n_${notes}_` : "";
+        return { content: [{ type: "text", text: appendAttribution(text + suffix) }] };
       } catch (error) {
         return { content: [{ type: "text", text: formatErrorForUser(error) }], isError: true };
       }

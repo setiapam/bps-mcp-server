@@ -144,7 +144,9 @@ Kapan TIDAK menggunakan tool ini:
 Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`,
     {
       domain: z.string().default("0000").describe("Kode domain BPS"),
-      keyword: z.string().describe("Kata kunci pencarian"),
+      keyword: z.string().optional().describe("Kata kunci pencarian"),
+      keywords: z.string().optional().describe("Alias untuk 'keyword'."),
+      query: z.string().optional().describe("Alias untuk 'keyword'."),
       type: z
         .string()
         .optional()
@@ -153,7 +155,17 @@ Jika WebAPI tidak menemukan hasil, otomatis fallback ke AllStats Search Engine.`
         ),
       page: z.number().optional().describe("Nomor halaman"),
     },
-    async ({ domain, keyword, type, page }) => {
+    async ({ domain, keyword: keywordInput, keywords, query, type, page }) => {
+      const keyword = keywordInput ?? keywords ?? query;
+      if (!keyword || !keyword.trim()) {
+        return {
+          content: [{
+            type: "text",
+            text: "Parameter 'keyword' wajib diisi, misal search(keyword=\"kemiskinan\").",
+          }],
+          isError: true,
+        };
+      }
       // --- Step 1: Try WebAPI ---
       let webapiError: unknown = null;
 

@@ -189,9 +189,16 @@ Ambil data time-series untuk satu wilayah dalam rentang tahun tertentu, format s
 | Param | Tipe | Default | Deskripsi |
 |-------|------|---------|-----------|
 | `query` | string | required | Indikator (misal: "IPM", "kemiskinan") |
-| `region` | string | "Indonesia" | Nama wilayah |
+| `region` | string | "Indonesia" | Nama wilayah (alias: `wilayah`) |
 | `start_year` | string | "2019" | Tahun awal |
 | `end_year` | string | "2024" | Tahun akhir |
+| `years` | string? | - | Alternatif: `"2021-2025"` atau `"2021,2022,2023"` |
+
+Implementasi memakai `buildRegionSeries` (sama seperti `compare_data`, tanpa fast
+path tabel nasional): baris wilayah divalidasi, seri dengan cakupan tahun
+terbanyak dipilih, dan tahun yang tidak tersedia dilaporkan. Untuk
+membandingkan beberapa wilayah, gunakan `compare_data` — jangan `get_trend`
+per wilayah.
 
 ### Flow Detail
 
@@ -329,121 +336,59 @@ kita filter berdasarkan year range di step 5e sebagai safety net.
 
 ## compare_data
 
-**File:** `src/tools/analysis.tools.ts`  
+**File:** `src/tools/analysis.tools.ts`
 **Fungsi:** `registerAnalysisTools` → tool "compare_data"
+**Helper:** `buildNationalBreakdown` / `buildRegionSeries` (`src/services/region-series.ts`),
+`resolvePeriodsForSpec` (`src/services/period-resolver.ts`)
 
 ### Tujuan
 
-Bandingkan satu indikator antara 2+ wilayah. Setiap wilayah di-resolve dan di-fetch secara independen.
+Bandingkan satu indikator antara 2+ wilayah, untuk SATU tahun maupun MULTI-tahun
+dalam satu panggilan (tidak perlu `get_trend` per wilayah).
 
 ### Parameter
 
 | Param | Tipe | Default | Deskripsi |
 |-------|------|---------|-----------|
-| `query` | string | required | Indikator (misal: "IPM", "pengangguran") |
-| `regions` | string | required | Nama wilayah dipisah koma |
-| `year` | string? | - | Tahun data |
+| `query` | string | required | Indikator (misal: "jumlah penduduk miskin", "IPM") |
+| `regions` | string | required | Nama wilayah dipisah koma (alias: `wilayah`, `provinces`) |
+| `year` | string? | - | Satu tahun |
+| `years` | string? | - | Beberapa tahun: `"2021-2025"` atau `"2021,2022,2023"` |
+| `start_year` / `end_year` | string? | - | Alternatif rentang multi-tahun |
 
-### Flow Detail
-
-```
-┌─ Per Wilayah: fetchDataForDomain() ──────────────────────────┐
-│                                                               │
-│ Input: query="pengangguran", domain="3600", year="2024"      │
-│                                                               │
-│ 1. resolveVariable(client, store, "pengangguran", "3600")    │
-│    → lookupVar() → check store                               │
-│    → Jika miss: full search di subject 6 (Tenaga Kerja)      │
-│    → Scoring: prefer "Kabupaten/Kota" variant                │
-│    → Return: var_id=157 "TPT Menurut Kabupaten/Kota"         │
-│                                                               │
-│ 2. listPeriods("3600", 157)                                  │
-│    → Cari period yang label-nya contains "2024"              │
-│                                                               │
-│    ⚠️ FALLBACK 1: Jika periods kosong                        │
-│    → invalidateVar() → resolveVariableFullSearch()            │
-│                                                               │
-│    ⚠️ FALLBACK 2: Jika tahun tidak ditemukan di periods      │
-│    → invalidateVar() → resolveVariableFullSearch()            │
-│    → listPeriods() lagi, cari tahun di var baru              │
-│                                                               │
-│ 3. getDynamicData("3600", "157", periodParam)                │
-│                                                               │
-│ 4. Extract AGGREGATE value dari datacontent                  │
-│    → Cari aggregate vervar:                                  │
-│      a. "9999" atau label "indonesia" (nasional)             │
-│      b. domain[0:2]+"99" (misal "3699" untuk domain 3600)   │
-│      c. label startsWith "<b>" (bold = aggregate)            │
-│      d. label contains "provinsi"                            │
-│    → Filter datacontent keys yang mengandung aggregate ID    │
-│    → Ambil nilai pertama yang match                          │
-│    → Fallback: values[0] jika tidak ada aggregate            │
-│                                                               │
-│ 5. Return: { value: "6,68 persen", varTitle: "TPT..." }      │
-└───────────────────────────────────────────────────────────────┘
-```
-
-### Variable Scoring (dalam `resolveVariable`)
-
-Ketika ada multiple variabel yang match keyword, scoring menentukan pilihan:
-
-```typescript
-score(variable) = {
-  +10  jika title contains "metode lama"        // HINDARI
-  +5   jika title contains "golongan umur"      // disagregasi
-  +5   jika title contains "lapangan usaha"     // disagregasi
-  +5   jika title contains "klasifikasi"        // disagregasi
-  +5   jika title contains "pendidikan tertinggi" // disagregasi
-  -2   jika title contains "metode baru"        // PREFER
-  -3   jika title contains "kabupaten"          // punya aggregate
-  -3   jika title contains "provinsi"           // punya aggregate
-}
-// Sort ascending (score rendah = lebih baik)
-```
-
-**Mengapa disagregasi di-deprioritize:**
-
-Variabel "TPT Menurut Golongan Umur" punya vervar: 15-19, 20-24, 25-29, ..., Jumlah.
-- Nilai pertama (15-19) = 38.85% (sangat tinggi, bukan TPT provinsi!)
-- Aggregate "Jumlah" ada tapi bukan entry pertama
-
-Variabel "TPT Menurut Kabupaten/Kota" punya vervar: Kab A, Kab B, ..., Provinsi X.
-- Entry "Provinsi X" (vervar 3699) = 6.68% (benar!)
-- Bisa dideteksi via pattern domain+"99"
-
-### Aggregate Vervar Detection
+### Flow
 
 ```
-Domain 0000 (Nasional):
-  → vervar "9999" dengan label "<b>INDONESIA</b>"
+1. parseYearSpec(years | start/end | year)
+   -> tahun 2021-2025 / daftar tahun / ID periode mentah
 
-Domain 3500 (Jawa Timur):
-  → vervar "35000" dengan label "Jawa Timur"
-  → ATAU vervar "3599" (pattern: domain[0:2] + "99")
-  → ATAU vervar dengan label "<b>JAWA TIMUR</b>"
+2. Jika SEMUA wilayah adalah provinsi (domain xxxx00):
+   buildNationalBreakdown()  <- 1 request untuk semua wilayah
+   - cari tabel nasional yang memuat baris tiap provinsi (mis. var 185:
+     "Jumlah Penduduk Miskin (Ribu Jiwa) Menurut Provinsi dan Daerah")
+   - unit konsisten + presisi penuh; tidak ada konversi Ribu vs Juta Jiwa
 
-Domain 3600 (Banten):
-  → vervar "3699" dengan label "Provinsi Banten"
-  → Pattern: "36" + "99" = "3699"
+3. Fallback (kab/kota atau tidak ada tabel nasional):
+   buildRegionSeries() per wilayah
+   - kandidat variabel divalidasi: baris harus milik wilayah itu
+     (tabel provinsi yang hanya berisi "Indonesia" ditolak)
+   - kandidat dengan cakupan tahun terbanyak menang
+   - "jumlah" -> tabel jumlah; "persentase/tingkat" -> tabel persen
+
+4. Output: tabel wilayah x tahun + kolom Selisih + ringkasan tren
+   + catatan tahun yang tidak tersedia + sumber variabel
 ```
 
-Detection logic (prioritas):
-1. ID = "9999" atau label contains "indonesia"
-2. ID = `domain.slice(0,2) + "99"` (misal "3699")
-3. ID = `domain.slice(0,4) + "0"` (misal "35000")
-4. Label startsWith `<b>` (bold)
-5. Label contains "provinsi"
+### Mengapa begitu
 
-### Unit Filtering
-
-BPS kadang mengisi unit dengan "Tidak Ada Satuan" — ini di-filter dari output:
-
-```typescript
-const unit = varData.unit && !varData.unit.toLowerCase().includes("tidak ada")
-  ? ` ${varData.unit}` : "";
-```
-
----
+- BPS hanya menerima ID periode (`th`), bukan tahun; `resolvePeriodsForSpec`
+  menerjemahkan tahun/rentang dan melaporkan tahun yang tidak tersedia
+  (sebelumnya tahun yang salah mengembalikan dataset kosong tanpa pesan).
+- Tabel provinsi sering berupa tabel nasional yang berisi semua provinsi;
+  memilih baris "Indonesia" menghasilkan angka nasional yang tampil seolah
+  angka provinsi. `pickRegionVervarId` memilih baris wilayah yang benar.
+- Satuan bisa beda antar domain ("Ribu Jiwa" vs "Juta Jiwa"); nilai
+  diseragamkan ke Ribu Jiwa sebelum menghitung selisih.
 
 ## get_ranking
 
@@ -655,7 +600,7 @@ Perbedaan dengan `resolveVariable`:
 
 **Lokasi:** `analysis.tools.ts` line ~467
 
-Dipakai oleh `compare_data`. Fetch satu nilai aggregate untuk satu domain.
+Dulu dipakai `compare_data` (single-year). Sekarang digantikan oleh `buildRegionSeries` di `src/services/region-series.ts`; fungsi ini tinggal sebagai referensi alur lama.
 
 ```
 1. resolveVariable() → var_id

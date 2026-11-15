@@ -242,8 +242,9 @@ export function computeRelevanceScore(
       if (titleLower.includes("garis kemiskinan")) score += 60;
       if (titleLower.includes("persentase") || titleLower.includes("jumlah penduduk miskin")) score -= 20;
     } else if (kw.includes("jumlah")) {
+      // "jumlah penduduk miskin" asks for a headcount, not a rate.
       if (titleLower.includes("jumlah")) score += 40;
-      if (titleLower.includes("persentase")) score -= 10;
+      if (titleLower.includes("persentase")) score -= 40;
       if (titleLower.includes("garis kemiskinan")) score -= 30;
     } else {
       if (titleLower.includes("persentase")) score += 40;
