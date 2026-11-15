@@ -208,6 +208,7 @@ export function generateResultHints(
 
   // If query is about unemployment, suggest related indicators
   if (kw.includes("pengangguran") || kw.includes("nganggur")) {
+    hints.push(`💡 Peringkat kabupaten/kota: get_ranking(query="pengangguran", level="kabkota", order="highest")`);
     hints.push(`💡 TPak: find_variable(keyword="tpak", domain="${domain}")`);
     hints.push(`💡 Angkatan kerja: find_variable(keyword="angkatan kerja", domain="${domain}")`);
   }

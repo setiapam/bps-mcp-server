@@ -70,6 +70,20 @@ describe("formatErrorForUser", () => {
     expect(result).toBe("Data tidak ditemukan: variabel X");
   });
 
+  it("should translate internal resource keys into a readable sentence", () => {
+    const result = formatErrorForUser(
+      new BpsNotFoundError('list:indicators:{"domain":"3578","lang":"ind"}')
+    );
+    expect(result).toBe("BPS tidak menyediakan indikator strategis (domain 3578)");
+    expect(result).not.toContain("list:");
+  });
+
+  it("should keep the keyword in the humanized message", () => {
+    expect(
+      formatErrorForUser(new BpsNotFoundError('list:statictable:{"domain":"0000","keyword":"pengangguran"}'))
+    ).toBe('BPS tidak menyediakan tabel statis (domain 0000, kata kunci "pengangguran")');
+  });
+
   it("should format generic BpsApiError with status code", () => {
     const result = formatErrorForUser(new BpsApiError("server error", 500));
     expect(result).toContain("Error dari BPS API (500)");

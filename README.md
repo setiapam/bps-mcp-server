@@ -179,9 +179,9 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `find_variable` | Cari variabel data berdasarkan kata kunci |
 | `compare_data` | Bandingkan data antar wilayah (2+ wilayah sekaligus dalam 1 panggilan) |
 | `get_trend` | Ambil data time-series/tren multi-tahun dalam 1 panggilan |
-| `get_ranking` | Ranking/peringkat provinsi berdasarkan indikator (top-N) |
+| `get_ranking` | Ranking provinsi **atau kabupaten/kota** berdasarkan indikator (top-N, satu panggilan) |
 
-> **Untuk AI:** Gunakan `find_data` untuk data 1 wilayah, `compare_data` untuk perbandingan, `get_trend` untuk tren, `get_ranking` untuk peringkat. Jika hasilnya kurang spesifik, gunakan `find_variable` lalu `get_dynamic_data`.
+> **Untuk AI:** Gunakan `find_data` untuk data 1 wilayah, `compare_data` untuk perbandingan, `get_trend` untuk tren, `get_ranking` untuk peringkat. Untuk peringkat kabupaten/kota pakai `get_ranking(level="kabkota")` — server menyapu tabel tiap provinsi sekaligus dan menyeragamkan tahun (BPS tidak punya tabel kab/kota nasional). Parameter `level` wajib diisi: `provinsi` atau `kabkota`. Jika hasilnya kurang spesifik, gunakan `find_variable` lalu `get_dynamic_data`.
 
 ### WebAPI Tools (32)
 
@@ -192,12 +192,12 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `list_subjects` | Daftar subjek data statistik |
 | `list_subject_categories` | Kategori subjek |
 | `list_variables` | Daftar variabel tabel dinamis |
-| `list_vertical_variables` | Variabel vertikal (disagregasi) |
+| `list_vertical_variables` | Variabel vertikal (disagregasi) — semua halaman digabung, tidak terpotong 10 baris |
 | `list_derived_variables` | Turunan variabel |
 | `list_periods` | Periode data tersedia |
 | `list_derived_periods` | Turunan periode |
 | `list_units` | Satuan data |
-| `get_dynamic_data` | **Core** — Ambil data tabel dinamis (butuh var_id) |
+| `get_dynamic_data` | **Core** — Ambil data tabel dinamis (butuh var_id); `format="json"` mengembalikan baris terstruktur |
 | `list_static_tables` | Daftar tabel statis |
 | `get_static_table` | Detail tabel statis (HTML) |
 | `list_press_releases` | Daftar Berita Resmi Statistik (BRS) |
@@ -258,7 +258,15 @@ User: "Tren pengangguran Indonesia 2019-2024"
 AI menggunakan: get_trend(query="pengangguran", region="Indonesia", start_year="2019", end_year="2024")
 
 User: "10 provinsi termiskin"
-AI menggunakan: get_ranking(query="kemiskinan", top_n=10, order="highest")
+AI menggunakan: get_ranking(query="kemiskinan", top_n=10, order="highest", level="provinsi")
+
+User: "10 kabupaten/kota dengan pengangguran tertinggi"
+AI menggunakan: get_ranking(query="pengangguran", top_n=10, order="highest", level="kabkota")
+→ Server menyapu tabel TPT kab/kota di seluruh provinsi (1 panggilan)
+→ Default period_mode="common": semua angka diseragamkan ke tahun bersama terbaru
+  (mis. 2025) agar sebanding; year="2024" untuk tahun lain, period_mode="latest"
+  untuk periode terbaru tiap provinsi
+→ Melaporkan provinsi yang tidak punya rincian kab/kota dan periode tiap baris
 
 User: "Statistik pemeluk agama di Kab Jombang"
 AI menggunakan: find_data(query="pemeluk agama", region="Kab Jombang")

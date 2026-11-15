@@ -11,6 +11,8 @@ import {
   resolveVariableForYears,
   searchVariables,
 } from "../services/variable-search.js";
+import { formatKabkotaRanking, rankKabkota } from "../services/kabkota-ranking.js";
+import { findKabkotaIndicator } from "../config/kabkota-indicators.js";
 import {
   extractVervarId,
   getAggregateValue,
@@ -344,23 +346,89 @@ Contoh query user yang cocok untuk tool ini:
   // ---------- get_ranking ----------
   server.tool(
     "get_ranking",
-    `Ambil peringkat/ranking provinsi berdasarkan indikator tertentu dalam 1 langkah.
-Gunakan tool ini ketika user ingin melihat peringkat, top-N, atau perbandingan seluruh provinsi.
+    `Ambil peringkat/ranking wilayah berdasarkan indikator tertentu dalam 1 langkah.
 
-Contoh query user yang cocok untuk tool ini:
+Mendukung dua level wilayah:
+- **level="kabkota"** — semua kabupaten/kota se-Indonesia (BPS tidak punya tabel
+  nasional untuk ini; server menyapu tabel tiap provinsi sekaligus).
+- **level="provinsi"** — 34–38 provinsi dari tabel nasional.
+
+level="auto" (default) memilih kabkota bila query menyebut kabupaten/kota/daerah,
+selain itu provinsi. Untuk ranking kabupaten/kota, sebutkan level secara eksplisit
+agar tidak ambigu.
+
+Contoh query user yang cocok:
+- "10 kabupaten/kota dengan tingkat pengangguran tertinggi" → level="kabkota"
 - "10 provinsi termiskin di Indonesia"
 - "peringkat IPM seluruh provinsi"
 - "provinsi dengan pengangguran tertinggi"
-- "ranking kemiskinan per provinsi 2023"
-- "5 provinsi dengan penduduk terbanyak"`,
+- "5 kota dengan pengangguran tertinggi di Jawa Timur" → level="kabkota", provinces="Jawa Timur"`,
     {
-      query: z.string().describe("Indikator untuk ranking (misal: kemiskinan, pengangguran, IPM, penduduk)"),
-      top_n: z.number().int().min(1).max(40).default(10).describe("Jumlah data yang ditampilkan (default 10, max 40 untuk semua provinsi)"),
+      query: z.string().describe("Indikator untuk ranking (misal: kemiskinan, pengangguran/TPT, IPM, penduduk)"),
+      top_n: z.number().int().min(1).max(200).default(10).describe("Jumlah data yang ditampilkan (default 10, max 200 untuk kabupaten/kota, 40 untuk provinsi)"),
       order: z.enum(["highest", "lowest"]).default("highest").describe("Urutan: 'highest' (tertinggi dulu) atau 'lowest' (terendah dulu)"),
-      year: z.string().optional().describe("Tahun data. Kosongkan untuk terbaru."),
+      year: z.string().optional().describe("Tahun data. Kosongkan untuk tahun bersama terbaru (default) agar semua wilayah sebanding."),
+      period_mode: z.enum(["common", "latest"]).default("common").describe("'common' (default): seragamkan ke tahun bersama terbaru; 'latest': pakai periode terbaru tiap provinsi (tahun bisa campur)"),
+      level: z.enum(["provinsi", "kabkota"]).describe("WAJIB dipilih. 'kabkota' bila jawaban perlu kabupaten/kota (satu panggilan, ~380 wilayah, tahun diseragamkan); 'provinsi' untuk peringkat 34-38 provinsi"),
+      provinces: z.string().optional().describe("Batasi ke provinsi tertentu (nama dipisah koma, misal 'Jawa Timur, Jawa Tengah'). Hanya untuk level=kabkota."),
+      format: z.enum(["markdown", "json"]).default("markdown").describe("Format keluaran: 'markdown' untuk dibaca, 'json' untuk diproses lebih lanjut"),
     },
-    async ({ query, top_n, order, year }) => {
+    async ({ query, top_n, order, year, level, provinces, format, period_mode }) => {
       try {
+        const useKabkota = level === "kabkota";
+
+        if (useKabkota) {
+          const provinceList = provinces
+            ? provinces.split(",").map((name) => name.trim()).filter(Boolean)
+            : undefined;
+          const ranking = await rankKabkota(client, resolver, {
+            query,
+            year,
+            topN: Math.min(top_n, 200),
+            order,
+            provinces: provinceList,
+            periodMode: period_mode,
+          });
+
+          if (ranking.rows.length === 0) {
+            return {
+              content: [{
+                type: "text",
+                text: appendAttribution(
+                  `Tidak ada data kabupaten/kota untuk "${query}".\n\n` +
+                  `**Saran:**\n` +
+                  `1. Panggil get_ranking(level="provinsi") untuk angka provinsi\n` +
+                  `2. Gunakan find_variable(keyword="${query}", domain="<kode provinsi>") lalu get_dynamic_data\n` +
+                  `3. Gunakan allstats_search(query="${query} kabupaten", content="table")`
+                ),
+              }],
+            };
+          }
+
+          if (format === "json") {
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  level: "kabkota",
+                  indicator: ranking.indicatorLabel,
+                  order,
+                  rows: ranking.rows,
+                  totalRegions: ranking.totalRegions,
+                  provincesCovered: ranking.provincesCovered,
+                  periods: ranking.periods,
+                  targetYear: ranking.targetYear,
+                  missingProvinces: ranking.missing,
+                }, null, 2),
+              }],
+            };
+          }
+
+          return {
+            content: [{ type: "text", text: appendAttribution(formatKabkotaRanking(ranking, { order, query })) }],
+          };
+        }
+
         // For ranking, we need national-level data that breaks down by province
         // Prefer variables with "Provinsi" in title for proper provincial breakdown
         const varData = await resolveVariableForRanking(client, store, query);
@@ -436,6 +504,17 @@ Contoh query user yang cocok untuk tool ini:
         if (rankings.length > display.length) {
           lines.push("");
           lines.push(`_Menampilkan ${display.length} dari ${rankings.length} wilayah._`);
+        }
+
+        // Point agents at the kab/kota equivalent so they do not sweep the
+        // provinces by hand after getting a province-only answer.
+        const kabkotaIndicator = findKabkotaIndicator(query);
+        if (kabkotaIndicator) {
+          lines.push("");
+          lines.push(
+            `_Butuh level kabupaten/kota? Panggil \`get_ranking(query="${query}", level="kabkota")\` — ` +
+              `satu panggilan, semua kab/kota se-Indonesia, tahun diseragamkan._`
+          );
         }
 
         return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };

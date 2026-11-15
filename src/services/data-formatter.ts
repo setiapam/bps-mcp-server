@@ -25,6 +25,22 @@ interface FormattedRow {
   unit?: string;
 }
 
+/** One row of dynamic data, with every dimension named (JSON output). */
+export interface StructuredRow {
+  /** Indicator name, e.g. "Tingkat Pengangguran Terbuka (TPT) menurut Kabupaten/Kota". */
+  indicator: string;
+  /** Vertical variable label (region, sex, ...). */
+  category?: string;
+  /** Derived variable label (the series inside the table, e.g. "TPT"). */
+  series?: string;
+  /** Period label as published, e.g. "2026". */
+  period: string;
+  /** Derived period label, e.g. "Agustus" or "Semester 1". */
+  subperiod?: string;
+  value: number | string;
+  unit?: string;
+}
+
 /**
  * Format BPS dynamic data response into human/LLM-readable text.
  *
@@ -164,7 +180,112 @@ export function formatDynamicData(
     lines.push(`**Satuan:** ${units.join(", ")}`);
   }
 
+  // Freshness: agents otherwise present 4-year-old data as if it were current.
+  const freshness = describeFreshness(rows);
+  if (freshness) {
+    lines.push("");
+    lines.push(freshness);
+  }
+
   return finalize(lines.join("\n"));
+}
+
+/** Latest period in the payload, with a warning when it is stale. */
+function describeFreshness(rows: FormattedRow[]): string | null {
+  const years = rows
+    .map((row) => Number(row.period.match(/\d{4}/)?.[0] ?? 0))
+    .filter((year) => year > 1900);
+  if (years.length === 0) return null;
+
+  const latest = Math.max(...years);
+  const currentYear = new Date().getFullYear();
+  const age = currentYear - latest;
+  if (age <= 2) return null;
+
+  return `_⚠️ Data terbaru untuk tabel ini adalah ${latest} (${age} tahun lalu); jangan disajikan sebagai data terkini._`;
+}
+
+/**
+ * Flatten a dynamic-data response into named rows so consumers do not have to
+ * parse markdown. Dimensions (category/series/subperiod) are resolved with the
+ * same logic used by the markdown renderer.
+ */
+export function toStructuredRows(
+  response: BpsDynamicDataResponse,
+  _domain?: string
+): StructuredRow[] {
+  const varMap = buildMap(response.var, (v) => [getVariableId(v), v]);
+  const vervarMap = buildMap(response.vervar, (v) => [getVervarId(v), v]);
+  const turvarMap = buildMap(response.turvar, (v) => [getTurvarId(v), v]);
+  const periodMap = buildMap(response.tahun, (v) => [getPeriodId(v), v]);
+  const turthMap = buildMap(response.turtahun, (v) => [getTurthId(v), v]);
+
+  const varKeys = sortedKeys(varMap);
+  const vervarKeys = sortedKeys(vervarMap);
+  const turvarKeys = sortedKeys(turvarMap);
+  const periodKeys = sortedKeys(periodMap);
+  const turthKeys = sortedKeys(turthMap);
+
+  const rows: StructuredRow[] = [];
+  for (const [key, value] of Object.entries(response.datacontent ?? {})) {
+    const row = resolveDatacontentKey(
+      key,
+      value,
+      varMap,
+      varKeys,
+      vervarMap,
+      vervarKeys,
+      turvarMap,
+      turvarKeys,
+      periodMap,
+      periodKeys,
+      turthMap,
+      turthKeys
+    );
+    if (!row) continue;
+    const series = row.derivedVariable && !/^tidak ada$/i.test(row.derivedVariable.trim())
+      ? row.derivedVariable
+      : undefined;
+    const subperiod = isNeutralPeriodLabel(row.derivedPeriod) ? undefined : row.derivedPeriod;
+    rows.push({
+      indicator: row.variable,
+      category: row.verticalVariable,
+      series,
+      period: row.period,
+      subperiod,
+      value: row.value,
+      unit: row.unit,
+    });
+  }
+  return rows;
+}
+
+/** Attach the domain to structured rows for JSON responses. */
+export function buildStructuredPayload(
+  response: BpsDynamicDataResponse,
+  domain: string
+): {
+  domain: string;
+  rows: StructuredRow[];
+  units: string[];
+  note?: string;
+} {
+  const rows = toStructuredRows(response, domain);
+  const units = [...new Set(rows.map((row) => row.unit).filter((unit): unit is string => !!unit))];
+  const freshness = describeFreshness(
+    rows.map((row) => ({
+      variable: row.indicator,
+      period: row.period,
+      value: row.value,
+      unit: row.unit,
+    }))
+  );
+  return {
+    domain,
+    rows,
+    units,
+    note: freshness ? freshness.replace(/^_|_$/g, "") : undefined,
+  };
 }
 
 /**

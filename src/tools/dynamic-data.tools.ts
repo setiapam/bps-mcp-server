@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
-import { formatDynamicData, formatList } from "../services/data-formatter.js";
+import { formatDynamicData, formatList, buildStructuredPayload } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
 import { formatErrorForUser } from "../utils/error.js";
 import {
@@ -104,14 +104,16 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
 
   server.tool(
     "list_vertical_variables",
-    "Daftar variabel vertikal (breakdown/disaggregasi) untuk variabel tertentu. Contoh: jenis kelamin, kelompok umur.",
+    `Daftar variabel vertikal (breakdown/disaggregasi) untuk variabel tertentu. Contoh: jenis kelamin, kelompok umur, kabupaten/kota.
+
+Semua baris diambil (BPS membatasi 10 per halaman, server menggabungkan seluruh halaman) agar daftar kabupaten/kota tidak terpotong.`,
     {
       domain: z.string().default("0000").describe("Kode domain BPS"),
       var: z.number().optional().describe("ID variabel untuk melihat vertikal variabelnya"),
     },
     async ({ domain, var: varId }) => {
       try {
-        const result = await client.listVerticalVariables(domain, varId);
+        const result = await client.listAllVerticalVariables(domain, varId);
         const text = formatList(
           result,
           (v) => {
@@ -119,7 +121,7 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
             const group = getVervarGroup(v);
             return `**${label}** (ID: ${getVervarId(v) || "-"})${group ? ` — Grup: ${group}` : ""}`;
           },
-          "Daftar Variabel Vertikal"
+          `Daftar Variabel Vertikal (${result.length} kategori)`
         );
         return { content: [{ type: "text", text }] };
       } catch (error) {
@@ -137,7 +139,7 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
     },
     async ({ domain, var: varId }) => {
       try {
-        const result = await client.listDerivedVariables(domain, varId);
+        const result = await client.listAllDerivedVariables(domain, varId);
         const text = formatList(
           result,
           (v) => {
@@ -145,7 +147,7 @@ export function registerDynamicDataTools(server: McpServer, client: BpsClient, c
             const group = getTurvarGroup(v);
             return `**${label}** (ID: ${getTurvarId(v) || "-"})${group ? ` — Grup: ${group}` : ""}`;
           },
-          "Daftar Turunan Variabel"
+          `Daftar Turunan Variabel (${result.length} kategori)`
         );
         return { content: [{ type: "text", text }] };
       } catch (error) {
@@ -244,8 +246,9 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
       turvar: z.string().optional().describe("Kode turunan variabel"),
       vervar: z.string().optional().describe("Kode variabel vertikal"),
       turth: z.string().optional().describe("Kode turunan periode"),
+      format: z.enum(["markdown", "json"]).default("markdown").describe("'markdown' untuk dibaca, 'json' untuk baris terstruktur {indicator, category, series, period, subperiod, value, unit}"),
     },
-    async ({ domain, var: varId, th, turvar, vervar, turth }) => {
+    async ({ domain, var: varId, th, turvar, vervar, turth, format }) => {
       try {
         let period = th;
         let autoPeriodNote = "";
@@ -271,6 +274,21 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
         }
 
         const result = await client.getDynamicData(domain, varId, period, turvar, vervar, turth);
+
+        if (format === "json") {
+          const payload = buildStructuredPayload(result, domain);
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(
+                { ...payload, period: period ?? null, autoPeriodNote: autoPeriodNote.trim() || undefined },
+                null,
+                2
+              ),
+            }],
+          };
+        }
+
         const text = formatDynamicData(result, domain, config.defaultLang, { includeAttribution: false });
         return { content: [{ type: "text", text: appendAttribution(text + autoPeriodNote) }] };
       } catch (error) {

@@ -47,6 +47,9 @@ export function registerSmartTools(
     "find_variable",
     `Cari variabel data BPS berdasarkan kata kunci. Mencari di semua subjek yang relevan.
 
+Bukan untuk ranking: bila user minta "10 kabupaten/kota ... tertinggi", panggil
+\`get_ranking(level="kabkota")\` — tool itu sudah tahu var_id tiap provinsi.
+
 Contoh penggunaan:
 - find_variable(keyword="penduduk") → variabel terkait jumlah penduduk
 - find_variable(keyword="kemiskinan", domain="3500") → variabel kemiskinan di Jawa Timur
@@ -121,6 +124,12 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
     "find_data",
     `Tool utama untuk AI: cari dan ambil data BPS dalam satu langkah.
 Secara otomatis: detect intent → resolve wilayah → cari variabel → ambil data.
+
+⚠️ JANGAN pakai tool ini untuk PERINGKAT/top-N wilayah ("10 kabupaten/kota
+tertinggi", "5 provinsi termiskin", "daerah dengan ... terbesar"). Panggil
+\`get_ranking\` langsung — untuk kabupaten/kota pakai level="kabkota". Menyapu
+sendiri daftar provinsi + variabel akan memakan 100+ panggilan dan tetap
+kehilangan sebagian wilayah. find_data hanya untuk SATU wilayah.
 
 ## Intent Detection (otomatis):
 - **Single value** (angka spesifik) → find_data
@@ -206,6 +215,7 @@ Contoh:
               `}\n` +
               `\`\`\``;
           } else if (intent.intent === "ranking") {
+            const kabkotaLevel = /\b(kabupaten|kabkota|kab\/kota|kabupaten\/kota)\b/i.test(query);
             redirectionText = `**Menyalin intensi pencarian: Peringkat/Ranking**\n` +
               `Query Anda tampaknya meminta peringkat data wilayah. Silakan panggil tool \`get_ranking\` untuk hasil terbaik.\n\n` +
               `**Rekomendasi pemanggilan tool:**\n` +
@@ -215,8 +225,8 @@ Contoh:
               `  "arguments": {\n` +
               `    "query": "${query}",\n` +
               `    "top_n": 10,\n` +
-              `    "order": "highest"\n` +
-              `  }\n` +
+              `    "order": "highest",\n    "level": "${kabkotaLevel ? "kabkota" : "provinsi"}"` +
+              `\n  }\n` +
               `}\n` +
               `\`\`\``;
           } else if (intent.intent === "publication") {

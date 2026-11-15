@@ -41,7 +41,8 @@ import type {
 } from "./types.js";
 import { BpsApiError, BpsAuthError, BpsNotFoundError } from "../utils/error.js";
 import { logger } from "../utils/logger.js";
-import { getPeriodId, getVariableId } from "./fields.js";
+import { getPeriodId, getVariableId, getVervarId } from "./fields.js";
+import { defaultScheduler, type RequestScheduler } from "./request-scheduler.js";
 
 /** Browser-like User-Agent to avoid BPS Perimeter WAF signature blocks */
 const USER_AGENT =
@@ -52,6 +53,9 @@ const FETCH_TIMEOUT_MS = 30_000;
 
 /** Maximum retry attempts for transient errors */
 const MAX_RETRIES = 3;
+
+/** Rate limiting deserves more patience than a transient server error. */
+const MAX_RATE_LIMIT_RETRIES = 5;
 
 /** Base delay for exponential backoff in milliseconds */
 const RETRY_BASE_DELAY_MS = 500;
@@ -91,6 +95,14 @@ function extractApiError(body: string): string | undefined {
   }
   const text = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return text ? text.slice(0, 300) : undefined;
+}
+
+/** Read the Retry-After header (seconds) from a response, if present. */
+function readRetryAfter(res: Response): number | undefined {
+  const header = typeof res.headers?.get === "function" ? res.headers.get("retry-after") : null;
+  if (!header) return undefined;
+  const seconds = Number(header);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 function dedupeBy<T>(items: T[], keyOf: (item: T) => string): T[] {
@@ -158,7 +170,8 @@ export class BpsClient {
   constructor(
     private readonly auth: IAuthProvider,
     private readonly cache: ICacheProvider | null,
-    config: Config
+    config: Config,
+    private readonly scheduler: RequestScheduler = defaultScheduler
   ) {
     this.baseUrl = config.apiBaseUrl;
     this.defaultLang = config.defaultLang;
@@ -187,7 +200,8 @@ export class BpsClient {
       return existing as Promise<T>;
     }
 
-    const promise = this.fetchWithRetry<T>(url, cacheKey, ttl);
+    // The scheduler keeps agents from hammering BPS into a 429 storm.
+    const promise = this.scheduler.run<T>(() => this.fetchWithRetry<T>(url, cacheKey, ttl));
     this.inflight.set(cacheKey, promise);
 
     try {
@@ -198,32 +212,35 @@ export class BpsClient {
   }
 
   private async fetchWithRetry<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    for (let attempt = 0; ; attempt++) {
       try {
         return await this.doFetch<T>(url, cacheKey, ttl);
       } catch (error) {
-        lastError = error;
-
-        // Retry transient server errors and BPS rate limiting (429/408).
+        // Retry transient server errors, and be extra patient with BPS rate
+        // limiting (429) since it can last several seconds.
         const status = error instanceof BpsApiError ? error.statusCode : undefined;
-        const isRetryable =
-          status !== undefined && (status >= 500 || status === 429 || status === 408);
+        const isRateLimited = status === 429;
+        const isRetryable = isRateLimited || (status !== undefined && (status >= 500 || status === 408));
+        const maxAttempts = isRateLimited ? MAX_RATE_LIMIT_RETRIES : MAX_RETRIES;
 
-        if (!isRetryable || attempt === MAX_RETRIES - 1) {
+        if (!isRetryable || attempt >= maxAttempts - 1) {
           throw error;
         }
 
-        const delay = status === 429
+        // Prefer the server's Retry-After hint over blind exponential backoff,
+        // but cap it: a 60s BPS stall would block the whole tool call.
+        const retryAfterMs =
+          error instanceof BpsApiError && error.retryAfterSeconds
+            ? Math.min(error.retryAfterSeconds, 10) * 1000
+            : 0;
+        const backoff = isRateLimited
           ? 2_000 * Math.pow(2, attempt)
           : RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
-        logger.warn(`Retrying (${attempt + 1}/${MAX_RETRIES}) after ${delay}ms: ${url}`);
+        const delay = Math.max(retryAfterMs, backoff);
+        logger.warn(`Retrying (${attempt + 1}/${maxAttempts}) after ${delay}ms: ${url}`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
-
-    throw lastError;
   }
 
   private async doFetch<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
@@ -323,7 +340,8 @@ export class BpsClient {
       throw new BpsApiError(
         detail ?? `HTTP ${res.status} ${res.statusText}`,
         res.status,
-        url
+        url,
+        readRetryAfter(res)
       );
     }
 
@@ -555,6 +573,63 @@ export class BpsClient {
       12 * 60 * 60
     );
     return this.extractPaginated(res).data;
+  }
+
+  /**
+   * Fetch every vertical-variable page. The API returns 10 rows per page, so a
+   * single call silently hides most kabupaten/kota categories (Sulawesi
+   * Selatan has 24, for example).
+   */
+  async listAllVerticalVariables(
+    domain?: string,
+    varId?: number,
+    maxPages = 20
+  ): Promise<BpsVerticalVariable[]> {
+    const first = await this.listRequest<{ data: [PageInfo, BpsVerticalVariable[]] }>(
+      MODELS.VERTICAL_VARIABLE,
+      { domain, var: varId, page: 1 },
+      12 * 60 * 60
+    );
+    const firstPage = this.extractPaginated(first);
+    const all = [...firstPage.data];
+    const pages = Math.min(firstPage.page?.pages ?? 1, maxPages);
+    for (let page = 2; page <= pages; page++) {
+      const res = await this.listRequest<{ data: [PageInfo, BpsVerticalVariable[]] }>(
+        MODELS.VERTICAL_VARIABLE,
+        { domain, var: varId, page },
+        12 * 60 * 60
+      );
+      const next = this.extractPaginated(res).data;
+      if (next.length === 0) break;
+      all.push(...next);
+    }
+    return dedupeBy(all, (v) => String(getVervarId(v)));
+  }
+
+  async listAllDerivedVariables(
+    domain?: string,
+    varId?: number,
+    maxPages = 10
+  ): Promise<BpsDerivedVariable[]> {
+    const first = await this.listRequest<{ data: [PageInfo, BpsDerivedVariable[]] }>(
+      MODELS.DERIVED_VARIABLE,
+      { domain, var: varId, page: 1 },
+      12 * 60 * 60
+    );
+    const firstPage = this.extractPaginated(first);
+    const all = [...firstPage.data];
+    const pages = Math.min(firstPage.page?.pages ?? 1, maxPages);
+    for (let page = 2; page <= pages; page++) {
+      const res = await this.listRequest<{ data: [PageInfo, BpsDerivedVariable[]] }>(
+        MODELS.DERIVED_VARIABLE,
+        { domain, var: varId, page },
+        12 * 60 * 60
+      );
+      const next = this.extractPaginated(res).data;
+      if (next.length === 0) break;
+      all.push(...next);
+    }
+    return dedupeBy(all, (v) => String(v.kode_turvar ?? v.kode_tur_id ?? v.val ?? ""));
   }
 
   async listDerivedVariables(domain?: string, varId?: number): Promise<BpsDerivedVariable[]> {
