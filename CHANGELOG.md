@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/setiapam/bps-mcp-server/compare/v0.17.0...v0.18.0) (2026-11-15)
+
+
+### Features
+
+* one-call multi-year comparison and region-safe series ([be2ed00](https://github.com/setiapam/bps-mcp-server/commit/be2ed002134a91e85ad87324983c080ab33fc3c9))
+
 ## [0.17.0](https://github.com/setiapam/bps-mcp-server/compare/v0.16.4...v0.17.0) (2026-11-15)
 
 
