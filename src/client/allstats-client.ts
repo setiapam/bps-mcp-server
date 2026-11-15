@@ -235,7 +235,7 @@ export class AllStatsClient {
       mfd: params.domain || "0000",
       from: params.yearFrom || "all",
       to: params.yearTo || "all",
-      sort: params.sort || "terbaru",
+      sort: params.sort || "relevansi",
     });
 
     return this.parseSearchResults(html, params.query, params.page || 1, params);

@@ -80,6 +80,49 @@ describe("dynamic data aggregate selection", () => {
     expect(extractVervarId("3100120", response)).toBe("3");
   });
 
+  it("picks the requested province instead of the Indonesia row", () => {
+    const response: BpsDynamicDataResponse = {
+      status: "OK",
+      "data-availability": "available",
+      data: null,
+      var: [{ var_id: 344, title: "Persentase Penduduk Miskin Menurut Provinsi", sub_id: 23, sub_name: "Kemiskinan" }],
+      vervar: [
+        { kode_vervar: 9999, label_vervar: "INDONESIA" },
+        { kode_vervar: 3200, label_vervar: "Jawa Barat" },
+        { kode_vervar: 3500, label_vervar: "Jawa Timur" },
+      ],
+      turvar: [{ kode_turvar: 0, label_turvar: "Tidak ada" }],
+      tahun: [{ th_id: 123, th_name: "2023" }],
+      turtahun: [{ turth_id: 63, turth_name: "Tahunan" }],
+      datacontent: {
+        "9999344012363": 9.36,
+        "3200344012363": 7.62,
+        "3500344012363": 10.35,
+      },
+    };
+
+    expect(selectAggregateVervar(response, "3500", "Jawa Timur")).toBe("3500");
+    expect(getAggregateValue(response, "3500", "Jawa Timur")).toBe(10.35);
+    expect(selectAggregateVervar(response, "0000", "Indonesia")).toBe("9999");
+  });
+
+  it("does not label a national-only table as a province", () => {
+    const response: BpsDynamicDataResponse = {
+      status: "OK",
+      "data-availability": "available",
+      data: null,
+      var: [{ var_id: 344, title: "Persentase Penduduk Miskin Menurut Provinsi" }],
+      vervar: [{ kode_vervar: 9999, label_vervar: "Indonesia" }],
+      turvar: [{ kode_turvar: 0, label_turvar: "Tidak ada" }],
+      tahun: [{ th_id: 123, th_name: "2023" }],
+      turtahun: [{ turth_id: 63, turth_name: "Tahunan" }],
+      datacontent: { "9999344012363": 9.36 },
+    };
+
+    expect(selectAggregateVervar(response, "3500", "Jawa Timur")).toBeNull();
+    expect(getAggregateValue(response, "3500", "Jawa Timur")).toBeNull();
+  });
+
   it("collapses large region breakdowns but keeps small Kota/Desa breakdowns", () => {
     const small = povertyResponse();
     expect(filterRelevantVervar(small, "3200", "Jawa Barat")).toBe(small);

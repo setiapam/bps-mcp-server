@@ -5,7 +5,7 @@ import type { Config } from "../config/index.js";
 import type { DomainResolver } from "../services/domain-resolver.js";
 import type { IPersistentStore } from "../services/persistent-store.js";
 import { appendAttribution } from "../services/attribution.js";
-import { normalizeKeyword } from "../services/learning.js";
+import { lookupVar, normalizeKeyword } from "../services/learning.js";
 import { resolveVariable as resolveVariableShared, searchVariables } from "../services/variable-search.js";
 import { formatKabkotaRanking, rankKabkota } from "../services/kabkota-ranking.js";
 import { findKabkotaIndicator } from "../config/kabkota-indicators.js";
@@ -101,7 +101,8 @@ Contoh query user yang cocok untuk tool ini:
               name: item.regionName,
               domainName: item.resolved!.domainName,
             })),
-            parsed.years
+            parsed.years,
+            store
           );
           if (breakdown) {
             usedNationalTable = true;
@@ -679,6 +680,22 @@ async function resolveVariableForRanking(
   store: IPersistentStore | null,
   query: string
 ): Promise<{ var_id: number; title: string; sub_name: string; unit?: string } | null> {
+  // Repeat rankings reuse the national table learned last time (one period
+  // listing) instead of sweeping subjects and variables again.
+  const learned = await lookupVar(query, "0000", store);
+  if (learned) {
+    try {
+      const periods = await listAllPeriodsSafe(client, "0000", learned.var_id);
+      const hasRecent = periods.some((period) => {
+        const year = Number(getPeriodLabel(period).match(/\d{4}/)?.[0] ?? 0);
+        return year >= 2020;
+      });
+      if (hasRecent) return learned;
+    } catch {
+      // Fall through to the search below.
+    }
+  }
+
   const candidates = await searchVariables(client, "0000", query, {
     maxSubjects: 8,
     maxPagesPerSubject: 6,

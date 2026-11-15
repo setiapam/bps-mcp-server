@@ -595,3 +595,27 @@ find_data("pemeluk agama", region="kab jombang")
 2. **Confidence score** — track hit rate per learned mapping, prioritaskan yang sering berhasil
 3. **Preload popular vars** — saat server start, warm up store dengan top-N queries
 4. **Response template** — untuk topik populer, sertakan context yang membuat AI tidak perlu call tool lain
+
+---
+
+## Update — fast path learned & pemilihan tabel statis
+
+Dua perubahan yang memangkas request pada panggilan berikutnya:
+
+1. **`resolveVariableForYears` memeriksa mapping learned lebih dulu.**
+   Sebelumnya pencarian subjek/variabel selalu dijalankan walau mapping sudah
+   tersimpan (14-27 request). Sekarang mapping divalidasi dengan satu daftar
+   periode; bila cocok (atau hanya kurang satu tahun) langsung dipakai.
+   `buildRegionSeries` dan `buildNationalBreakdown` ikut memakai jalur ini dan
+   menghapus mapping yang ternyata tidak punya baris wilayah.
+
+2. **Skor tabel statis: topik dulu, wilayah kemudian.**
+   Domain kabupaten sudah menyaring tabel per wilayah, jadi nama wilayah di
+   judul bukan sinyal kuat. Dulu bonus wilayah +30 membuat tabel
+   "… Kementerian Agama …" menang atas "PENDUDUK MENURUT AGAMA YANG DIANUT".
+   Sekarang: `20 + 15 × jumlah term topik`, bonus frasa utuh +15, wilayah +10,
+   dan penalti untuk tabel pengadilan/perkara yang hanya cocok karena kata
+   "agama".
+
+3. **Batas 6 kandidat periode** (dari 8) dan tanpa paralelisasi: BPS membalas
+   429 untuk burst, jadi request dijaga tetap berurutan.

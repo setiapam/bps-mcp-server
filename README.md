@@ -205,7 +205,7 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `list_publications` | Daftar publikasi |
 | `get_publication` | Detail publikasi |
 | `list_strategic_indicators` | Indikator strategis (headline data terbaru) |
-| `get_trade_data` | Data ekspor/impor berdasarkan kode HS |
+| `get_trade_data` | Data ekspor/impor per bab HS 2 digit; bisa pakai nama komoditas ("kopi", "cpo", "batubara") |
 | `list_infographics` | Daftar infografis BPS |
 | `get_infographic` | Detail infografis |
 | `list_news` | Daftar berita BPS |
@@ -216,17 +216,17 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
 | `list_csa_subjects` | Subjek CSA per domain |
 | `list_csa_tables` | Tabel CSA per subjek |
 | `get_csa_table` | Detail tabel CSA (HTML) |
-| `list_glossary` | Glosarium istilah statistik |
-| `search` | Pencarian lintas tipe (WebAPI + AllStats fallback) |
+| `list_glossary` | Glosarium istilah statistik (fallback otomatis ke definisi variabel saat endpoint glosarium BPS down) |
+| `search` | Pencarian lintas tipe dalam satu panggilan (`type="all"` = tabel + publikasi + BRS sekaligus, fallback AllStats) |
 | `cache_clear` | Bersihkan cache |
 
-> **Catatan parameter BPS:** `get_trade_data` menggunakan `hs_type` `1` (2-digit) atau `2` (full-digit), dan `period` `1` (bulanan) atau `2` (tahunan). Untuk data multi-tahun, pisahkan tahun dengan koma; server memecahnya menjadi maksimal 3 periode per request sesuai batas BPS.
+> **Catatan parameter BPS:** `get_trade_data` menerima kode HS 2-10 digit atau nama komoditas; WebAPI BPS hanya menyediakan data per bab 2 digit, jadi kode yang lebih panjang otomatis diturunkan ke babnya. `source`/`period` menerima `"1"/"2"` maupun `"ekspor"/"impor"` dan `"bulanan"/"tahunan"`.
 
 ### AllStats Search Tools (2)
 
 | Tool | Deskripsi |
 |------|-----------|
-| `allstats_search` | Pencarian unified semua konten BPS (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi) |
+| `allstats_search` | Pencarian unified semua konten BPS (publikasi, tabel, BRS, infografis, data mikro, klasifikasi); urutan default `relevansi`, otomatis mencoba akar kata bila hasil nol |
 | `allstats_deep_search` | Full-text search di dalam isi PDF publikasi BPS — **fitur unik, tidak tersedia di WebAPI** |
 
 ## Bagaimana AI Menggunakan Server Ini

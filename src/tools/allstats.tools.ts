@@ -6,6 +6,7 @@ import type {
   AllStatsDeepSearchResponse,
 } from "../client/allstats-client.js";
 import { appendAttribution } from "../services/attribution.js";
+import { inferContentTypeFromUrl, searchQueryFallbacks } from "../services/search-query.js";
 
 // ========== Formatters ==========
 
@@ -25,10 +26,11 @@ function formatSearchResults(res: AllStatsSearchResponse): string {
 
   for (let i = 0; i < res.results.length; i++) {
     const r = res.results[i];
+    const contentType = inferContentTypeFromUrl(r.url, r.contentType);
     lines.push(`### ${i + 1}. ${r.title}`);
     if (r.description) lines.push(`> ${r.description}`);
     lines.push("");
-    if (r.contentType) lines.push(`- **Tipe:** ${r.contentType}`);
+    lines.push(`- **Tipe:** ${contentType}`);
     if (r.domain) lines.push(`- **Sumber:** ${r.domain}`);
     if (r.url) lines.push(`- **URL:** ${r.url}`);
     if (r.deepSearchId) {
@@ -108,7 +110,7 @@ export function registerAllStatsTools(
   // ---------- allstats_search ----------
   server.tool(
     "allstats_search",
-    "Pencarian konten BPS melalui AllStats Search Engine (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi). PENTING: Tool ini memiliki latensi tinggi karena menggunakan proxy/scraping. Gunakan tool 'search' terlebih dahulu karena jauh lebih cepat. Hanya gunakan tool ini jika 'search' tidak menemukan hasil. Tidak memerlukan API key.",
+    "Pencarian konten BPS melalui AllStats Search Engine (publikasi, tabel, BRS, infografis, data mikro, glosarium, klasifikasi). PENTING: Tool ini memiliki latensi tinggi karena menggunakan proxy/scraping. Gunakan tool 'search' terlebih dahulu karena jauh lebih cepat. Hanya gunakan tool ini jika 'search' tidak menemukan hasil. Tidak memerlukan API key.\n\nUrutan default 'relevansi' (paling cocok dulu). Bila kata kunci turunan tidak menghasilkan apa pun, server otomatis mencoba akar katanya (mis. \"kemiskinan\" → \"miskin\") dalam panggilan yang sama.",
     {
       query: z.string().describe("Kata kunci pencarian"),
       content: z
@@ -154,12 +156,13 @@ export function registerAllStatsTools(
         .describe("Filter tahun sampai ('all' atau tahun, cth: '2024')"),
       sort: z
         .enum(["terbaru", "relevansi"])
-        .default("terbaru")
-        .describe("Urutan hasil: 'terbaru' (newest first) atau 'relevansi'"),
+        .default("relevansi")
+        .describe("Urutan hasil: 'relevansi' (default, paling cocok) atau 'terbaru' (terbaru dulu)"),
     },
     async ({ query, content, domain, page, title_only, year_from, year_to, sort }) => {
       try {
-        const result = await allStatsClient.search({
+        let effectiveQuery = query;
+        let result = await allStatsClient.search({
           query,
           content,
           domain,
@@ -170,7 +173,40 @@ export function registerAllStatsTools(
           sort,
         });
 
-        const text = appendAttribution(formatSearchResults(result));
+        // The engine indexes derived words poorly: "kemiskinan" returns 0 while
+        // "miskin" returns hundreds. Retry the root automatically instead of
+        // letting the caller burn another tool call on the same question. Pick
+        // the best fallback (not merely the first non-empty): "penganggur"
+        // yields 1 hit while "tpt" yields hundreds.
+        if (result.results.length === 0) {
+          let best: { query: string; response: AllStatsSearchResponse } | null = null;
+          for (const fallback of searchQueryFallbacks(query)) {
+            const retry = await allStatsClient.search({
+              query: fallback,
+              content,
+              domain,
+              page,
+              titleOnly: title_only,
+              yearFrom: year_from,
+              yearTo: year_to,
+              sort,
+            });
+            if (retry.results.length === 0) continue;
+            if (!best || retry.results.length > best.response.results.length) {
+              best = { query: fallback, response: retry };
+            }
+            if (best.response.results.length >= 5) break;
+          }
+          if (best) {
+            effectiveQuery = best.query;
+            result = best.response;
+          }
+        }
+
+        const note = effectiveQuery !== query
+          ? `_Kata kunci "${query}" tidak menghasilkan apa pun; hasil di bawah memakai akar kata "${effectiveQuery}"._\n\n`
+          : "";
+        const text = appendAttribution(note + formatSearchResults(result));
         return { content: [{ type: "text", text }] };
       } catch (error) {
         const message =

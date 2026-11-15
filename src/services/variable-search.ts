@@ -74,13 +74,42 @@ const PROVINCE_PATTERN = /\bprovinsi\b/i;
 
 export interface VariableCandidate extends LearnedVar {
   score: number;
+  /** BPS definition of the variable, when the API provides one. */
+  def?: string;
 }
 
 export interface SearchVariablesOptions {
   maxSubjects?: number;
   maxPagesPerSubject?: number;
   maxCandidates?: number;
+  /**
+   * Year hint. BPS uses it to skip series without data in that year, which
+   * keeps multi-year queries from checking periods of unrelated old series.
+   * It is a soft filter (unknown years return everything), so callers must
+   * still validate the periods they finally use.
+   */
+  year?: string | number;
 }
+
+/**
+ * Words that say *which statistic* the caller wants, not just the topic.
+ * They are Indonesian stopwords, so `normalizeKeyword` drops them — but
+ * "jumlah penduduk miskin" means a headcount and "persentase penduduk miskin"
+ * means a rate. Scoring must keep that difference.
+ */
+export interface MeasureHint {
+  amount: boolean;
+  rate: boolean;
+}
+
+export function detectMeasureHint(query: string): MeasureHint {
+  const text = (query ?? "").toLowerCase();
+  return {
+    amount: /\b(jumlah|total|banyak|orang|jiwa|unit|ton|kg)\b/.test(text),
+    rate: /\b(persentase|persen|tingkat|rasio|rate|proporsi)\b|%/.test(text),
+  };
+}
+
 
 /** Extract root words and synonyms so "kemiskinan" also matches "miskin". */
 export function expandQueryTerms(query: string): string[] {
@@ -164,6 +193,7 @@ export function computeRelevanceScore(
   const terms = expandQueryTerms(kw);
   const termGroups = groupTerms(terms);
   const queryWords = kw.split(/\s+/).filter((word) => word.length > 2);
+  const measure = detectMeasureHint(query);
 
   let score = 0;
   let matchedGroups = 0;
@@ -215,6 +245,16 @@ export function computeRelevanceScore(
     score += asksBreakdown ? 5 : 10;
   }
 
+  // Amount vs rate. "jumlah penduduk miskin" must not answer with a percentage
+  // just because the rate table has the same topic words.
+  if (measure.amount && !measure.rate) {
+    if (/jumlah|total|banyak/.test(titleLower)) score += 15;
+    if (/persentase|persen|tingkat|rasio/.test(titleLower)) score -= 20;
+  } else if (measure.rate && !measure.amount) {
+    if (/persentase|persen|tingkat|rasio/.test(titleLower)) score += 10;
+    if (/^jumlah|total/.test(titleLower)) score -= 8;
+  }
+
   // If the query does not ask for an index, prefer the main indicator.
   if (titleLower.includes("indeks") && !terms.some((term) => term.includes("indeks"))) {
     score -= 15;
@@ -241,7 +281,7 @@ export function computeRelevanceScore(
     if (kw.includes("garis")) {
       if (titleLower.includes("garis kemiskinan")) score += 60;
       if (titleLower.includes("persentase") || titleLower.includes("jumlah penduduk miskin")) score -= 20;
-    } else if (kw.includes("jumlah")) {
+    } else if (measure.amount && !measure.rate) {
       // "jumlah penduduk miskin" asks for a headcount, not a rate.
       if (titleLower.includes("jumlah")) score += 40;
       if (titleLower.includes("persentase")) score -= 40;
@@ -307,25 +347,21 @@ export async function searchVariables(
   const maxSubjects = options.maxSubjects ?? 6;
   const maxPagesPerSubject = options.maxPagesPerSubject ?? 6;
   const maxCandidates = options.maxCandidates ?? 20;
+  const yearHint = Number(options.year);
+  const filterYear = Number.isFinite(yearHint) && yearHint > 0 ? yearHint : undefined;
 
   const mappedSubjectIds = getSubjectIdsForKeyword(kw);
-  const subjects = await loadSubjects(client, domain);
   const terms = expandQueryTerms(kw);
-  const matchedSubjectIds = subjects
-    .filter((subject) => {
-      const title = (subject.title ?? "").toLowerCase();
-      return terms.some((term) => term.length > 2 && title.includes(term));
-    })
-    .map((subject) => subject.sub_id);
-
-  const subjectIds = dedupe([...mappedSubjectIds, ...matchedSubjectIds]);
   const candidates: VariableCandidate[] = [];
   const seen = new Set<number>();
+  const scannedSubjectIds = new Set<number>();
 
   const addVariables = (variables: Array<{ var_id: number; title: string; sub_name: string; unit?: string; def?: string }>) => {
     for (const variable of variables) {
       if (seen.has(variable.var_id)) continue;
-      const score = computeRelevanceScore(kw, variable.title, variable.sub_name, variable.def);
+      // Score against the raw query: measure words ("jumlah", "persentase")
+      // are stopwords and would otherwise be normalized away.
+      const score = computeRelevanceScore(query, variable.title, variable.sub_name, variable.def);
       if (score <= 0) continue;
       seen.add(variable.var_id);
       candidates.push({
@@ -333,36 +369,62 @@ export async function searchVariables(
         title: variable.title ?? "",
         sub_name: variable.sub_name ?? "",
         unit: variable.unit,
+        def: variable.def,
         score,
       });
     }
   };
 
-  const searchSubject = async (searchDomain: string, subjectId: number | undefined) => {
-    const first = await client.listVariables(searchDomain, subjectId, undefined, 1, 100);
+  const searchSubject = async (subjectId: number) => {
+    const first = await client.listVariables(domain, subjectId, filterYear, 1, 100);
     addVariables(first.data ?? []);
     const pages = Math.min(first.page?.pages ?? 1, maxPagesPerSubject);
     for (let page = 2; page <= pages; page++) {
       if (candidates.length >= maxCandidates * 2) break;
-      const next = await client.listVariables(searchDomain, subjectId, undefined, page, 100);
+      const next = await client.listVariables(domain, subjectId, filterYear, page, 100);
       if (!next.data || next.data.length === 0) break;
       addVariables(next.data);
     }
   };
 
-  for (const subjectId of subjectIds.slice(0, maxSubjects)) {
-    if (candidates.length >= maxCandidates * 2) break;
-    try {
-      await searchSubject(domain, subjectId);
-    } catch (error) {
-      // Some domains expose a subject in the list but return
-      // "list-not-available" when its variables are requested. Skip it.
-      if (error instanceof BpsNotFoundError) {
-        logger.debug(`searchVariables: subject ${subjectId} unavailable in domain ${domain}`);
-        continue;
+  const searchSubjects = async (subjectIds: number[]) => {
+    for (const subjectId of subjectIds) {
+      if (scannedSubjectIds.size >= maxSubjects) return;
+      if (scannedSubjectIds.has(subjectId)) continue;
+      if (candidates.length >= maxCandidates * 2) return;
+      scannedSubjectIds.add(subjectId);
+      try {
+        await searchSubject(subjectId);
+      } catch (error) {
+        // Some domains expose a subject in the list but return
+        // "list-not-available" when its variables are requested. Skip it.
+        if (error instanceof BpsNotFoundError) {
+          logger.debug(`searchVariables: subject ${subjectId} unavailable in domain ${domain}`);
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+  };
+
+  // Pass 1: the curated keyword → subject map. Subject IDs are stable across
+  // domains, so most queries need no subject listing at all.
+  await searchSubjects(mappedSubjectIds);
+
+  // Pass 2: page through the domain's subject index only when the curated map
+  // found (almost) nothing. Listing subjects costs 4-6 requests per domain and
+  // is the same for every query, so paying it up front on each cold start is
+  // the main reason find_variable/find_data used to take ten-plus requests.
+  if (candidates.length < 3) {
+    const subjects = await loadSubjects(client, domain);
+    const matchedSubjectIds = subjects
+      .filter((subject) => {
+        const title = (subject.title ?? "").toLowerCase();
+        return terms.some((term) => term.length > 2 && title.includes(term));
+      })
+      .map((subject) => subject.sub_id)
+      .filter((subjectId) => !mappedSubjectIds.includes(subjectId));
+    await searchSubjects(dedupe(matchedSubjectIds));
   }
 
   // Fallback: scan all variables when subject mapping found nothing.
@@ -372,7 +434,7 @@ export async function searchVariables(
   if (candidates.length === 0) {
     for (let page = 1; page <= 2; page++) {
       try {
-        const result = await client.listVariables(domain, undefined, undefined, page, 100);
+        const result = await client.listVariables(domain, undefined, filterYear, page, 100);
         if (!result.data || result.data.length === 0) break;
         addVariables(result.data);
         if (candidates.length >= 5) break;
@@ -424,6 +486,8 @@ export interface ResolvedVariableWithPeriods {
   periods: BpsPeriod[];
   matchedYears: string[];
   candidates: VariableCandidate[];
+  /** True when served straight from the learned store (no search ran). */
+  learnedHit?: boolean;
 }
 
 export interface ResolveYearsOptions {
@@ -450,6 +514,11 @@ async function listAllPeriodsSafe(
  * Resolve a variable and require that it has periods for the requested years.
  * BPS often keeps an old series (e.g. IPM 2014–2019) next to a current one;
  * without this check a 2023 query silently returns 2019 data.
+ *
+ * Order matters for speed: a learned (or curated national) mapping is validated
+ * with ONE period listing and returned immediately. Only when it does not cover
+ * the requested years does the expensive subject/variable sweep run. Repeat
+ * questions therefore cost 1-3 requests instead of 15-30.
  */
 export async function resolveVariableForYears(
   client: BpsClient,
@@ -460,12 +529,49 @@ export async function resolveVariableForYears(
   options: ResolveYearsOptions = {}
 ): Promise<ResolvedVariableWithPeriods | null> {
   const normalizedYears = years.map((year) => year.trim()).filter(Boolean);
-  if (normalizedYears.length === 0) {
+  const wantsYears = normalizedYears.length > 0;
+
+  const learned = options.skipLearned ? null : await lookupVar(query, domain, store);
+  if (learned) {
+    let periods: BpsPeriod[] | null = null;
+    try {
+      periods = await listAllPeriodsSafe(client, domain, learned.var_id);
+    } catch (error) {
+      if (!(error instanceof BpsNotFoundError)) throw error;
+    }
+    if (periods && periods.length > 0) {
+      const labels = periods.map((period) => getPeriodLabel(period));
+      const matchedYears = normalizedYears.filter((year) =>
+        labels.some((label) => label.includes(year))
+      );
+      if (!wantsYears || matchedYears.length === normalizedYears.length) {
+        logger.debug(
+          `resolveVariableForYears: learned fast path "${query}" domain=${domain} → ` +
+          `var_id=${learned.var_id} (${getVariableTitle(learned)}), matched=${matchedYears.join(",") || "latest"}`
+        );
+        return { varData: learned, periods, matchedYears, candidates: [], learnedHit: true };
+      }
+
+      // One missing year is common ("5 tahun terakhir" where the newest release
+      // lags) and must not trigger a 20-request search: the caller already
+      // reports which years are missing. A learned series that covers almost
+      // nothing is stale and falls through to the search below.
+      const missingYears = normalizedYears.filter((year) => !matchedYears.includes(year));
+      if (missingYears.length === 1 && matchedYears.length >= 2) {
+        logger.debug(
+          `resolveVariableForYears: learned fast path (partial) "${query}" domain=${domain} → ` +
+          `var_id=${learned.var_id}, missing=${missingYears.join(",")}`
+        );
+        return { varData: learned, periods, matchedYears, candidates: [], learnedHit: true };
+      }
+    }
+  }
+
+  if (!wantsYears) {
     const searched = await searchVariables(client, domain, query, {
       maxCandidates: options.maxCandidates ?? 20,
     });
-    const learned = options.skipLearned ? null : await lookupVar(query, domain, store);
-    const varData = learned ?? searched[0] ?? null;
+    const varData = searched[0] ?? null;
     if (!varData) return null;
     const periods = await listAllPeriodsSafe(client, domain, varData.var_id);
     return { varData, periods, matchedYears: [], candidates: searched };
@@ -476,6 +582,8 @@ export async function resolveVariableForYears(
 
   const searched = await searchVariables(client, domain, query, {
     maxCandidates: options.maxCandidates ?? 20,
+    // Newest year: series that stop before it are dropped by BPS itself.
+    year: normalizedYears[normalizedYears.length - 1],
   });
   for (const candidate of searched) {
     if (seen.has(candidate.var_id)) continue;
@@ -483,26 +591,24 @@ export async function resolveVariableForYears(
     candidates.push(candidate);
   }
 
-  // National KNOWN_VARS are curated and stable, so trust them first. For
-  // provincial domains, search first: local IDs differ and a stale learned ID
-  // can point to an unrelated table.
-  if (!options.skipLearned) {
-    const learned = await lookupVar(query, domain, store);
-    if (learned) {
-      if (domain === "0000") {
-        candidates.unshift(learned);
-        seen.add(learned.var_id);
-      } else if (!seen.has(learned.var_id)) {
-        candidates.push(learned);
-        seen.add(learned.var_id);
-      }
+  // A partially matching learned mapping is still a valid candidate; national
+  // KNOWN_VARS are curated and stable, so they go first.
+  if (learned && !seen.has(learned.var_id)) {
+    if (domain === "0000") {
+      candidates.unshift(learned);
+    } else {
+      candidates.push(learned);
     }
+    seen.add(learned.var_id);
   }
 
   let best: { varData: LearnedVar; periods: BpsPeriod[]; matchedYears: string[] } | null = null;
   let bestMatchCount = -1;
 
-  for (const candidate of candidates.slice(0, 8)) {
+  // BPS rate-limits bursts (HTTP 429), so period lists are checked one at a
+  // time. The learned fast path above means this only runs for first-time
+  // queries; the year hint above keeps the candidate list short.
+  for (const candidate of candidates.slice(0, 6)) {
     let periods: BpsPeriod[];
     try {
       periods = await listAllPeriodsSafe(client, domain, candidate.var_id);
@@ -525,11 +631,8 @@ export async function resolveVariableForYears(
   if (!best) return null;
 
   // If a stale learned mapping lost to a better candidate, remove it.
-  if (!options.skipLearned) {
-    const learned = await lookupVar(query, domain, store);
-    if (learned && learned.var_id !== best.varData.var_id) {
-      await invalidateVar(query, domain, store);
-    }
+  if (learned && learned.var_id !== best.varData.var_id) {
+    await invalidateVar(query, domain, store);
   }
 
   await learnVar(query, domain, best.varData, store);

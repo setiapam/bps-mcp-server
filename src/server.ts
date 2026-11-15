@@ -52,6 +52,13 @@ ATURAN ROUTING (penting, hemat panggilan):
    Parameter th menerima TAHUN langsung ('2021-2025'), tidak perlu list_periods.
    Pakai format="json" bila hasilnya akan diolah lagi.
 5. Mencari variabel/tabel/publikasi -> find_variable, search, allstats_search.
+   search(keyword="...") default sudah mencari tabel + publikasi + BRS sekaligus
+   (type="all"); jangan panggil search berkali-kali dengan type berbeda.
+6. Ekspor/impor -> get_trade_data(commodity="kopi", source="ekspor", year="2024").
+   Tidak perlu mencari kode HS lebih dulu; nama komoditas dipetakan otomatis dan
+   kode 4-10 digit diturunkan ke bab 2 digit yang memang tersedia di WebAPI.
+7. Definisi istilah/indikator -> list_glossary. Bila endpoint glosarium BPS
+   sedang down, tool otomatis menjawab dari definisi variabel BPS.
 
 CATATAN DATA: periode antar provinsi tidak seragam (2024-2026). Selalu sebutkan
 tahun data saat menyajikan angka, dan jangan menyebut data lama sebagai "terkini".

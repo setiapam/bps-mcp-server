@@ -81,7 +81,7 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
         const allVars: Array<{ var_id: number; title: string; sub_name: string; unit?: string; def?: string }> = [];
 
         if (subject) {
-          await searchVariablesInSubject(client, domain, subject, normalizeKeyword(keyword), allVars);
+          await searchVariablesInSubject(client, domain, subject, keyword, allVars);
         } else {
           const candidates = await searchVariables(client, domain, keyword, {
             maxSubjects: 8,
@@ -95,6 +95,7 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
               title: candidate.title,
               sub_name: candidate.sub_name,
               unit: candidate.unit,
+              def: candidate.def,
             });
           }
         }
@@ -120,7 +121,7 @@ Setelah mendapat var_id dari tool ini, gunakan get_dynamic_data untuk mengambil 
         for (const v of allVars.slice(0, 15)) {
           const unit = formatUnit(v.unit);
           lines.push(`- **${v.title}** (var_id: \`${v.var_id}\`) — Subjek: ${v.sub_name}${unit ? ` — Satuan: ${unit}` : ""}`);
-          if (v.def) lines.push(`  _${v.def.substring(0, 150)}_`);
+          if (v.def) lines.push(`  _${v.def.replace(/\s+/g, " ").substring(0, 200)}_`);
         }
 
         lines.push("");
@@ -667,7 +668,7 @@ async function searchVariablesInSubject(
   client: BpsClient,
   domain: string,
   subject: number | undefined,
-  kw: string,
+  keyword: string,
   results: Array<{ var_id: number; title: string; sub_name: string; unit?: string; def?: string }>
 ): Promise<void> {
   let firstPage;
@@ -689,7 +690,8 @@ async function searchVariablesInSubject(
     if (!result.data || result.data.length === 0) break;
 
     for (const variable of result.data) {
-      const score = computeRelevanceScore(kw, variable.title, variable.sub_name, variable.def);
+      // Raw keyword: "jumlah"/"persentase" carry the measure and are stopwords.
+      const score = computeRelevanceScore(keyword, variable.title, variable.sub_name, variable.def);
       if (score > 0) scored.push({ variable, score });
     }
     if (scored.length >= 30) break;
@@ -755,15 +757,31 @@ async function staticTableFallback(
 
   const asksBreakdown = /\b(kabupaten|kecamatan|desa|kelurahan|per\s*kab|per\s*kec)\b/i.test(query);
   const searchTerms = [kw, ...words.filter((word) => word.length > 2)];
+  const queryText = query.toLowerCase();
   const scoredTables = tables
     .map((table) => {
       const title = table.title.toLowerCase();
-      let score = 0;
-      if (!searchTerms.some((term) => title.includes(term))) return { table, score: 0 };
-      score += 20;
-      if (domainName && title.includes(domainName.toLowerCase())) score += 30;
-      if (title.includes("kabupaten")) score += 10;
+      const subject = (table.subj ?? "").toLowerCase();
+      const topicHits = searchTerms.filter((term) => title.includes(term)).length;
+      if (topicHits === 0) return { table, score: 0 };
+      // Topic first, region second: the table already comes from the region's
+      // domain, so a region name in the title says little about the topic.
+      let score = 20 + topicHits * 15;
+      if (title.includes(kw)) score += 15;
+      if (domainName && title.includes(domainName.toLowerCase())) score += 10;
+      if (title.includes("kabupaten")) score += 5;
       if (title.includes("jumlah") || title.includes("penduduk")) score += 5;
+      // "<population> menurut <topic>" is usually the table the caller means.
+      if (title.includes("menurut") && searchTerms.some((term) => title.includes(term))) score += 10;
+      if (searchTerms.some((term) => term.length > 3 && subject.includes(term))) score += 15;
+      // Kabupaten domains publish court statistics ("pengadilan agama") that
+      // match religion keywords by institution name, not by topic.
+      if (
+        /\bpengadilan\b|\bperkara\b|\bperceraian\b/.test(title) &&
+        !/\bpengadilan\b|\bperkara\b|\bperceraian\b/.test(queryText)
+      ) {
+        score -= 40;
+      }
       if (/desa|kelurahan|kecamatan/.test(title)) {
         score += asksBreakdown ? 15 : -25;
       }

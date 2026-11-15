@@ -217,10 +217,16 @@ export class BpsClient {
         return await this.doFetch<T>(url, cacheKey, ttl);
       } catch (error) {
         // Retry transient server errors, and be extra patient with BPS rate
-        // limiting (429) since it can last several seconds.
+        // limiting (429) since it can last several seconds. A 500 whose body
+        // says the endpoint is unregistered/unavailable is permanent: retrying
+        // it only burns calls and seconds (the glossary endpoint does this).
         const status = error instanceof BpsApiError ? error.statusCode : undefined;
         const isRateLimited = status === 429;
-        const isRetryable = isRateLimited || (status !== undefined && (status >= 500 || status === 408));
+        const permanentOutage =
+          error instanceof BpsApiError &&
+          /service is currently unavailable|have yet to be registered in the routes/i.test(error.message);
+        const isRetryable =
+          !permanentOutage && (isRateLimited || (status !== undefined && (status >= 500 || status === 408)));
         const maxAttempts = isRateLimited ? MAX_RATE_LIMIT_RETRIES : MAX_RETRIES;
 
         if (!isRetryable || attempt >= maxAttempts - 1) {

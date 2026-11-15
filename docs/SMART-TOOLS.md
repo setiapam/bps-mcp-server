@@ -9,6 +9,7 @@ Dokumentasi lengkap logic internal smart tools. Setiap tool bukan sekadar wrappe
 3. [compare_data](#compare_data) — Perbandingan antar wilayah
 4. [get_ranking](#get_ranking) — Peringkat provinsi
 5. [Helper Functions](#helper-functions) — Fungsi-fungsi pendukung
+6. [Putaran optimasi tool custom lainnya](#putaran-optimasi-tool-custom-lainnya) — find_variable, search, allstats, trade, glossary
 
 ---
 
@@ -902,3 +903,117 @@ Juga expanded `KEYWORD_SUBJECTS` dengan pdrb→[52], harapan→[26,30], pendidik
 **Problem:** User minta "bandingkan kemiskinan Jatim vs Jabar 2020 dan 2024" tapi tool hanya support 1 tahun.
 
 **Fix:** Tambah note di tool description: "hanya mendukung perbandingan untuk 1 tahun. Untuk perbandingan multi-tahun, gunakan get_trend per wilayah."
+
+---
+
+## Putaran optimasi tool custom lainnya
+
+Fokus putaran ini: tool yang *bukan* wrapper satu-endpoint WebAPI, yaitu
+`find_data`, `find_variable`, `search`, `allstats_search`, `get_trade_data`,
+`list_glossary`, serta mesin variabel/periode yang dipakai bersama.
+
+### Ringkasan dampak (diukur terhadap WebAPI BPS)
+
+| Skenario | Sebelum | Sesudah | Catatan |
+| --- | --- | --- | --- |
+| `find_variable("penduduk")` | 11 request | 5 request | Subject index hanya dipakai bila peta subjek kurasi tidak cukup |
+| `find_variable("kemiskinan", domain=3500)` | 7 request | 3 request | Tidak lagi menarik daftar subjek provinsi |
+| `find_data` panggilan ulang (learned) | 9-15 request | 5 request | Mapping yang sudah dipelajari divalidasi 1x, tanpa sweep |
+| `get_trend` panggilan ulang | 23-27 request | 3 request | Fast path learned + toleransi 1 tahun hilang |
+| `compare_data` provinsi (learned) | 14 request | 2-3 request | Tabel nasional yang dipelajari dipakai lebih dulu |
+| `get_ranking(level="provinsi")` ulang | 4 request | 1 request | Tabel nasional learned dipakai lebih dulu |
+| `search(keyword=...)` tanpa `type` | 1 request (hanya tabel statis) | 3 request paralel (tabel+publikasi+BRS) | Satu tool call, bukan 2-3 |
+| `allstats_search("kemiskinan")` | 1 request → 0 hasil | 2 request → 343 hasil | Otomatis memakai akar kata "miskin" |
+| `get_trade_data(hs_code="0901")` | 0 baris / error | data bab 09 | Fallback otomatis ke bab 2 digit |
+| `list_glossary` saat WebAPI 500 | 3 retry + error | 1 request + fallback definisi | Tidak retry error permanen |
+
+### find_data: jumlah vs persentase
+
+`normalizeKeyword` membuang kata ukuran ("jumlah", "total", "persentase",
+"tingkat") karena termasuk stopword. Akibatnya "jumlah penduduk miskin" bisa
+dijawab dengan tabel persentase.
+
+`detectMeasureHint(query)` membaca query mentah dan memberi bobot:
+- `jumlah/total/orang/jiwa` → boost judul "jumlah", penalti "persentase"
+- `persentase/persen/tingkat/rasio` → sebaliknya
+
+`computeRelevanceScore` sekarang selalu menerima query mentah, bukan keyword
+yang sudah dinormalisasi.
+
+### find_data: baris wilayah, bukan baris Indonesia
+
+`selectAggregateVervar` dulu selalu memilih baris "INDONESIA" lebih dulu, bahkan
+untuk domain provinsi. Tabel nasional yang terekspos di domain 3500 karena itu
+menampilkan angka nasional (9,36%) sebagai "Jawa Timur".
+
+Sekarang urutannya untuk domain non-nasional:
+1. label yang sama dengan nama wilayah (`normalizeRegionLabel`)
+2. id domain / `xx99` / `xxxx0`
+3. label yang mengandung nama wilayah
+4. baris agregat Kota+Desa/total
+5. satu-satunya baris, kecuali berlabel Indonesia/nasional
+
+`getAggregateValue` mengikuti aturan yang sama supaya tidak pernah mengembalikan
+angka nasional untuk permintaan provinsi.
+
+### find_variable / searchVariables: hemat request
+
+- Peta `KEYWORD_SUBJECTS` (kurasi) dijalankan lebih dulu; daftar subjek domain
+  (4-6 request) hanya diambil bila hasilnya kurang dari 3 kandidat.
+- `SearchVariablesOptions.year` diteruskan ke `listVariables`, sehingga BPS
+  menyaring seri yang tidak punya data pada tahun itu.
+- Kandidat kini membawa `def`, jadi `find_variable` dan `list_glossary` bisa
+  menampilkan definisi tanpa request tambahan.
+
+### resolveVariableForYears: fast path learned
+
+Urutan baru:
+1. mapping learned/`KNOWN_VARS` → daftar periode (1-2 request) → cocok → selesai
+2. toleransi satu tahun hilang (mis. 2019-2024 tetapi seri mulai 2020) supaya
+   tidak memicu pencarian 20+ request; tahun yang hilang tetap dilaporkan
+3. bila seri learned sudah kedaluwarsa → pencarian penuh (maks. 6 kandidat)
+
+`buildRegionSeries` dan `buildNationalBreakdown` memakai mekanisme yang sama dan
+menghapus mapping learned yang ternyata tidak punya baris wilayah.
+
+### search: satu panggilan untuk semua tipe
+
+`type` default `"all"` → tiga request paralel (`statictable`, `publication`,
+`pressrelease`), hasil dikelompokkan per tipe dan diberi petunjuk tool lanjutan
+(`get_static_table`, `get_publication`, `get_press_release`).
+
+Perbaikan tambahan:
+- `type="strategicindicator"` dulu mengirim model `strategicindicator` (tidak
+  terdaftar di BPS, 3 retry + error); sekarang memakai model `indicators`.
+- `type="all"` dulu juga mengirim model `all` (error); sekarang fan-out.
+- Fallback AllStats memakai akar kata otomatis.
+
+### allstats_search: akar kata & relevansi
+
+Mesin AllStats mengembalikan 0 untuk banyak kata turunan yang justru umum
+("kemiskinan", "pendidikan", "pengangguran"), tetapi ratusan untuk akarnya
+("miskin", "didik", "tpt"). `searchQueryFallbacks` menghasilkan maksimal 3
+kandidat (head noun, peta akar terkurasi, strip afiks) dan tool memilih kandidat
+dengan hasil terbanyak. Urutan default juga diubah ke `relevansi`; `terbaru`
+tetap tersedia.
+
+Filter `content=glosarium` dan `content=microdata` saat ini diarahkan ulang oleh
+situs BPS (redirect loop), jadi tool mengandalkan fallback definisi variabel.
+
+### get_trade_data: input manusiawi
+
+- `source` menerima `"1"/"2"` maupun `"ekspor"/"impor"`.
+- `period` menerima `"1"/"2"` maupun `"bulanan"/"tahunan"` (default tahunan).
+- `commodity`/`komoditas` memetakan nama ke bab HS (kopi→09, cpo→15, batubara→27,
+  nikel→75, dst.), jadi tidak perlu mencari kode HS dulu.
+- `hs_type` dihitung dari panjang kode; `year` default tahun lalu.
+- WebAPI hanya punya data per bab 2 digit: kode 4-10 digit otomatis diturunkan ke
+  babnya (404 atau 0 baris), dengan catatan di output.
+
+### list_glossary: tetap menjawab saat endpoint down
+
+Endpoint `/glosarium` WebAPI saat ini selalu HTTP 500. Server tidak lagi
+me-retry error permanen (3 → 1 request). Bila glosarium gagal:
+1. cari variabel yang relevan dan tampilkan `def` dari metadata variabel
+2. bila tidak ada, tampilkan dokumen terkait dari AllStats (dengan akar kata)
+3. bila semuanya kosong, beri saran `find_variable` / `allstats_search`

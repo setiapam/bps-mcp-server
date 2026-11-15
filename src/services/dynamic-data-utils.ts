@@ -6,6 +6,7 @@ import {
   getVervarId,
   getVervarLabel,
 } from "../client/fields.js";
+import { normalizeRegionLabel } from "./region-label.js";
 
 export interface VervarEntry {
   id: string;
@@ -20,8 +21,12 @@ export function getVervarEntries(response: BpsDynamicDataResponse): VervarEntry[
 
 /**
  * Pick the aggregate row for a response.
- * Examples: INDONESIA (9999), Kota+Desa (poverty), or the domain's own
- * province/city when the data is a national table queried for a region.
+ *
+ * For a national request that is INDONESIA (9999), Kota+Desa (poverty) or the
+ * combined category. For a provincial/kab-kota request it must be the row of
+ * that region: BPS provincial domains often expose the full national table, and
+ * preferring the INDONESIA row there labels the national figure as the region's
+ * (e.g. "kemiskinan Jawa Timur" answered with 9.36%, the national rate).
  */
 export function selectAggregateVervar(
   response: BpsDynamicDataResponse,
@@ -31,28 +36,47 @@ export function selectAggregateVervar(
   const entries = getVervarEntries(response);
   if (entries.length === 0) return null;
 
-  const indonesia = entries.find((entry) => /\bindonesia\b/i.test(entry.label));
-  if (indonesia) return indonesia.id;
+  if (domain === "0000") {
+    const indonesia = entries.find((entry) => /\bindonesia\b/i.test(entry.label));
+    if (indonesia) return indonesia.id;
+
+    const combined = entries.find((entry) =>
+      /^(kota\s*\+\s*desa|total|jumlah|nasional|semua)$/i.test(entry.label.trim())
+    );
+    if (combined) return combined.id;
+
+    return entries.length === 1 ? entries[0].id : null;
+  }
+
+  const target = domainName ? normalizeRegionLabel(domainName) : "";
+  if (target) {
+    const exact = entries.find((entry) => normalizeRegionLabel(entry.label) === target);
+    if (exact) return exact.id;
+  }
+
+  const byId =
+    entries.find((entry) => entry.id === domain) ??
+    entries.find((entry) => entry.id === `${domain.slice(0, 2)}99`) ??
+    entries.find((entry) => entry.id === `${domain.slice(0, 4)}0`);
+  if (byId) return byId.id;
+
+  if (target) {
+    const contains = entries.find((entry) => {
+      const normalized = normalizeRegionLabel(entry.label);
+      return normalized.length > 2 && (normalized.includes(target) || target.includes(normalized));
+    });
+    if (contains) return contains.id;
+  }
 
   const combined = entries.find((entry) =>
-    /^(kota\s*\+\s*desa|total|jumlah|nasional|semua)$/i.test(entry.label.trim())
+    /^(kota\s*\+\s*desa|perkotaan\s*\+\s*perdesaan|total|jumlah|semua)$/i.test(entry.label.trim())
   );
   if (combined) return combined.id;
 
-  if (domain !== "0000") {
-    const exact = entries.find(
-      (entry) =>
-        entry.id === domain ||
-        (domainName !== undefined && entry.label.trim().toLowerCase() === domainName.trim().toLowerCase())
-    );
-    if (exact) return exact.id;
-
-    const provinceLike = entries.find(
-      (entry) => entry.id === `${domain.slice(0, 2)}99` || entry.id === `${domain.slice(0, 4)}0`
-    );
-    if (provinceLike) return provinceLike.id;
-
-    if (entries.length === 1) return entries[0].id;
+  // A single row is normally the region's own figure (the API already scoped
+  // the table to the domain). A single "Indonesia" row is not.
+  if (entries.length === 1 && !/^(indonesia|nasional)$/i.test(entries[0].label.trim())) {
+    return entries[0].id;
   }
 
   return null;
@@ -154,7 +178,7 @@ export function getAggregateValue(
   const aggregateVervar = selectAggregateVervar(response, domain, domainName);
   const aggregateTurvar = selectAggregateTurvar(response);
 
-  if (aggregateVervar || aggregateTurvar) {
+  if (aggregateVervar || (aggregateTurvar && domain === "0000")) {
     const match = numericEntries.find(([key]) => {
       if (aggregateVervar && extractVervarId(key, response) !== aggregateVervar) return false;
       if (aggregateTurvar && extractTurvarId(key, response) !== aggregateTurvar) return false;
@@ -163,8 +187,14 @@ export function getAggregateValue(
     if (match) return match[1];
   }
 
-  // Only safe when there is exactly one numeric value.
-  if (numericEntries.length === 1) return numericEntries[0][1];
+  // Only safe when the single row is not the national figure.
+  if (numericEntries.length === 1) {
+    const entries = getVervarEntries(response);
+    const only = entries.length === 1 ? entries[0] : null;
+    if (!only || domain === "0000" || !/^(indonesia|nasional)$/i.test(only.label.trim())) {
+      return numericEntries[0][1];
+    }
+  }
   return null;
 }
 

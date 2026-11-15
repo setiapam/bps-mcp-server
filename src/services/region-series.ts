@@ -1,8 +1,14 @@
 import type { BpsClient } from "../client/bps-client.js";
 import type { BpsDynamicDataResponse } from "../client/types.js";
 import type { IPersistentStore } from "./persistent-store.js";
-import { resolveVariableForYears, searchVariables } from "./variable-search.js";
-import { extractVervarId, getVervarEntries, selectAggregateTurvar } from "./dynamic-data-utils.js";
+import { resolveVariableForYears, searchVariables, type VariableCandidate } from "./variable-search.js";
+import { invalidateVar, learnVar, lookupVar } from "./learning.js";
+import {
+  extractVervarId,
+  getVervarEntries,
+  selectAggregateTurvar,
+} from "./dynamic-data-utils.js";
+import { normalizeRegionLabel } from "./region-label.js";
 import { resolvePeriodsForSpec } from "./period-resolver.js";
 import {
   getPeriodId,
@@ -25,13 +31,7 @@ import {
  * and the candidate with the widest year coverage wins.
  */
 
-export function normalizeRegionLabel(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/\b(provinsi|propinsi|prov|kabupaten|kab|kota|administrasi)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+export { normalizeRegionLabel } from "./region-label.js";
 
 /** Pick the vervar id that represents the requested region. */
 export function pickRegionVervarId(
@@ -267,75 +267,105 @@ export async function buildRegionSeries(
     return base;
   }
 
-  let best: RegionSeries | null = null;
   const maxCandidates = Math.max(1, options.maxCandidates ?? 5);
   let rejectedWithoutRegionRow = 0;
 
-  for (const candidate of queue.slice(0, maxCandidates)) {
-    const title = getVariableTitle(candidate) || candidate.title;
-    let periods;
-    try {
-      periods = await resolvePeriodsForSpec(
-        client,
+  const evaluate = async (
+    items: Array<{ var_id: number; title: string; sub_name: string; unit?: string }>
+  ): Promise<RegionSeries | null> => {
+    let bestLocal: RegionSeries | null = null;
+
+    for (const candidate of items.slice(0, maxCandidates)) {
+      const title = getVariableTitle(candidate) || candidate.title;
+      let periods;
+      try {
+        periods = await resolvePeriodsForSpec(
+          client,
+          domain,
+          candidate.var_id,
+          years.length > 0 ? years.join(",") : undefined
+        );
+      } catch {
+        continue;
+      }
+      if (periods.entries.length === 0) continue;
+
+      const periodIds = periods.entries.map((entry) => entry.id);
+      let response: BpsDynamicDataResponse;
+      try {
+        response = await client.getDynamicData(domain, String(candidate.var_id), periodIds.join(";"));
+      } catch {
+        continue;
+      }
+      if (!response?.datacontent || Object.keys(response.datacontent).length === 0) continue;
+
+      const vervarId = pickRegionVervarId(response, domain, domainName);
+      if (!vervarId) {
+        rejectedWithoutRegionRow++;
+        continue;
+      }
+      if (!hasRegionRow(response, domain, domainName)) {
+        rejectedWithoutRegionRow++;
+        continue;
+      }
+
+      const turth = selectSeriesTurth(response, periodIds);
+      const points: SeriesPoint[] = [];
+      for (const entry of periods.entries) {
+        const value = pickValueForPeriod(response, vervarId, entry.id, turth?.id ?? null);
+        if (value === null) continue;
+        points.push({
+          id: entry.id,
+          label: entry.label,
+          year: entry.year ?? entry.label.match(/\d{4}/)?.[0] ?? entry.label,
+          value,
+        });
+      }
+      if (points.length === 0) continue;
+
+      points.sort((a, b) => a.label.localeCompare(b.label, "id", { numeric: true }));
+      const candidateSeries: RegionSeries = {
+        region,
         domain,
-        candidate.var_id,
-        years.length > 0 ? years.join(",") : undefined
-      );
-    } catch {
-      continue;
-    }
-    if (periods.entries.length === 0) continue;
+        domainName,
+        varId: candidate.var_id,
+        varTitle: title,
+        unit: getVariableUnit(candidate) ?? candidate.unit,
+        seriesLabel: turth && !isNeutralPeriodLabel(turth.label) ? turth.label : undefined,
+        points,
+        missingYears: years.filter((year) => !points.some((point) => point.year === year)),
+        availableYears: periods.availableYears,
+        notes,
+      };
 
-    const periodIds = periods.entries.map((entry) => entry.id);
-    let response: BpsDynamicDataResponse;
+      if (!bestLocal || candidateSeries.points.length > bestLocal.points.length) bestLocal = candidateSeries;
+      if (bestLocal.points.length === years.length && years.length > 0) break;
+    }
+
+    return bestLocal;
+  };
+
+  let best = await evaluate(queue);
+
+  // The learned mapping covered the requested years but produced no usable row
+  // (e.g. the table only carries the national figure). Drop it and run the full
+  // search once — still cheaper than searching on every call.
+  if (!best && resolved?.learnedHit) {
+    await invalidateVar(query, domain, store);
     try {
-      response = await client.getDynamicData(domain, String(candidate.var_id), periodIds.join(";"));
-    } catch {
-      continue;
-    }
-    if (!response?.datacontent || Object.keys(response.datacontent).length === 0) continue;
-
-    const vervarId = pickRegionVervarId(response, domain, domainName);
-    if (!vervarId) {
-      rejectedWithoutRegionRow++;
-      continue;
-    }
-    if (!hasRegionRow(response, domain, domainName)) {
-      rejectedWithoutRegionRow++;
-      continue;
-    }
-
-    const turth = selectSeriesTurth(response, periodIds);
-    const points: SeriesPoint[] = [];
-    for (const entry of periods.entries) {
-      const value = pickValueForPeriod(response, vervarId, entry.id, turth?.id ?? null);
-      if (value === null) continue;
-      points.push({
-        id: entry.id,
-        label: entry.label,
-        year: entry.year ?? entry.label.match(/\d{4}/)?.[0] ?? entry.label,
-        value,
+      const retry = await resolveVariableForYears(client, store, query, domain, years, {
+        maxCandidates: 20,
+        skipLearned: true,
       });
+      const retryQueue: typeof queue = [];
+      if (retry?.varData) retryQueue.push(retry.varData);
+      for (const candidate of retry?.candidates ?? []) {
+        if (!retryQueue.some((entry) => entry.var_id === candidate.var_id)) retryQueue.push(candidate);
+      }
+      best = await evaluate(retryQueue);
+    } catch {
+      // Keep the diagnostic note below.
     }
-    if (points.length === 0) continue;
-
-    points.sort((a, b) => a.label.localeCompare(b.label, "id", { numeric: true }));
-    const candidateSeries: RegionSeries = {
-      region,
-      domain,
-      domainName,
-      varId: candidate.var_id,
-      varTitle: title,
-      unit: getVariableUnit(candidate) ?? candidate.unit,
-      seriesLabel: turth && !isNeutralPeriodLabel(turth.label) ? turth.label : undefined,
-      points,
-      missingYears: years.filter((year) => !points.some((point) => point.year === year)),
-      availableYears: periods.availableYears,
-      notes,
-    };
-
-    if (!best || candidateSeries.points.length > best.points.length) best = candidateSeries;
-    if (best.points.length === years.length && years.length > 0) break;
   }
 
   if (!best) {
@@ -393,17 +423,10 @@ export async function buildNationalBreakdown(
   client: BpsClient,
   query: string,
   regions: Array<{ name: string; domainName: string }>,
-  years: string[]
+  years: string[],
+  store?: IPersistentStore | null
 ): Promise<NationalBreakdown | null> {
   if (regions.length === 0) return null;
-
-  let candidates;
-  try {
-    candidates = await searchVariables(client, "0000", query, { maxCandidates: 20 });
-  } catch {
-    return null;
-  }
-  if (candidates.length === 0) return null;
 
   const wantsAmount = /\bjumlah\b|\btotal\b|\bjiwa\b|\borang\b/.test(query.toLowerCase());
   const wantsRate = /\bpersentase\b|\bpersen\b|%|\btingkat\b/.test(query.toLowerCase());
@@ -426,80 +449,119 @@ export async function buildNationalBreakdown(
     return score;
   };
 
-  const ordered = [...candidates]
-    .filter((candidate) => !/kabupaten|kecamatan|kelurahan|desa/i.test(candidate.title))
-    .sort((a, b) => fit(b.title, b.unit) - fit(a.title, a.unit));
+  const evaluate = async (candidates: VariableCandidate[]): Promise<NationalBreakdown | null> => {
+    const ordered = candidates
+      .filter((candidate) => !/kabupaten|kecamatan|kelurahan|desa/i.test(candidate.title))
+      .sort((a, b) => fit(b.title, b.unit) - fit(a.title, a.unit));
 
-  for (const candidate of ordered.slice(0, 5)) {
-    let periods;
-    try {
-      periods = await resolvePeriodsForSpec(
-        client,
+    for (const candidate of ordered.slice(0, 5)) {
+      let periods;
+      try {
+        periods = await resolvePeriodsForSpec(
+          client,
+          "0000",
+          candidate.var_id,
+          years.length > 0 ? years.join(",") : undefined
+        );
+      } catch {
+        continue;
+      }
+      if (periods.entries.length === 0) continue;
+
+      const periodIds = periods.entries.map((entry) => entry.id);
+      let response: BpsDynamicDataResponse;
+      try {
+        response = await client.getDynamicData("0000", String(candidate.var_id), periodIds.join(";"));
+      } catch {
+        continue;
+      }
+
+      const vervarEntries = getVervarEntries(response);
+      if (vervarEntries.length === 0 || vervarEntries.length > 40) continue;
+
+      const byRegion = new Map<string, SeriesPoint[]>();
+      const turth = selectSeriesTurth(response, periodIds);
+      let allMatched = true;
+
+      for (const region of regions) {
+        const target = normalizeRegionLabel(region.domainName || region.name);
+        const match =
+          vervarEntries.find((entry) => normalizeRegionLabel(entry.label) === target) ??
+          vervarEntries.find((entry) => {
+            const normalized = normalizeRegionLabel(entry.label);
+            return normalized.length > 2 && (normalized.includes(target) || target.includes(normalized));
+          });
+        if (!match) {
+          allMatched = false;
+          break;
+        }
+        const points: SeriesPoint[] = [];
+        for (const entry of periods.entries) {
+          const value = pickValueForPeriod(response, match.id, entry.id, turth?.id ?? null);
+          if (value === null) continue;
+          points.push({
+            id: entry.id,
+            label: entry.label,
+            year: entry.year ?? entry.label.match(/\d{4}/)?.[0] ?? entry.label,
+            value,
+          });
+        }
+        if (points.length === 0) {
+          allMatched = false;
+          break;
+        }
+        points.sort((a, b) => a.label.localeCompare(b.label, "id", { numeric: true }));
+        byRegion.set(region.domainName || region.name, points);
+      }
+
+      if (!allMatched) continue;
+
+      await learnVar(
+        query,
         "0000",
-        candidate.var_id,
-        years.length > 0 ? years.join(",") : undefined
+        {
+          var_id: candidate.var_id,
+          title: candidate.title,
+          sub_name: candidate.sub_name ?? "",
+          unit: candidate.unit ?? unitFromTitle(candidate.title),
+          domain: "0000",
+        },
+        store ?? null
       );
-    } catch {
-      continue;
-    }
-    if (periods.entries.length === 0) continue;
 
-    const periodIds = periods.entries.map((entry) => entry.id);
-    let response: BpsDynamicDataResponse;
-    try {
-      response = await client.getDynamicData("0000", String(candidate.var_id), periodIds.join(";"));
-    } catch {
-      continue;
+      return {
+        varId: candidate.var_id,
+        varTitle: candidate.title,
+        unit: candidate.unit ?? unitFromTitle(candidate.title),
+        seriesLabel: turth && !isNeutralPeriodLabel(turth.label) ? turth.label : undefined,
+        byRegion,
+      };
     }
 
-    const vervarEntries = getVervarEntries(response);
-    if (vervarEntries.length === 0 || vervarEntries.length > 40) continue;
+    return null;
+  };
 
-    const byRegion = new Map<string, SeriesPoint[]>();
-    const turth = selectSeriesTurth(response, periodIds);
-    let allMatched = true;
-
-    for (const region of regions) {
-      const target = normalizeRegionLabel(region.domainName || region.name);
-      const match =
-        vervarEntries.find((entry) => normalizeRegionLabel(entry.label) === target) ??
-        vervarEntries.find((entry) => {
-          const normalized = normalizeRegionLabel(entry.label);
-          return normalized.length > 2 && (normalized.includes(target) || target.includes(normalized));
-        });
-      if (!match) {
-        allMatched = false;
-        break;
-      }
-      const points: SeriesPoint[] = [];
-      for (const entry of periods.entries) {
-        const value = pickValueForPeriod(response, match.id, entry.id, turth?.id ?? null);
-        if (value === null) continue;
-        points.push({
-          id: entry.id,
-          label: entry.label,
-          year: entry.year ?? entry.label.match(/\d{4}/)?.[0] ?? entry.label,
-          value,
-        });
-      }
-      if (points.length === 0) {
-        allMatched = false;
-        break;
-      }
-      points.sort((a, b) => a.label.localeCompare(b.label, "id", { numeric: true }));
-      byRegion.set(region.domainName || region.name, points);
+  // Fast path: the national table used last time is validated against the
+  // requested years by evaluate() itself, so a repeat comparison needs one
+  // period listing instead of the subject/variable sweep.
+  if (store) {
+    const learned = await lookupVar(query, "0000", store);
+    if (learned) {
+      const breakdown = await evaluate([{ ...learned, score: 0 }]);
+      if (breakdown) return breakdown;
     }
-
-    if (!allMatched) continue;
-
-    return {
-      varId: candidate.var_id,
-      varTitle: candidate.title,
-      unit: candidate.unit ?? unitFromTitle(candidate.title),
-      seriesLabel: turth && !isNeutralPeriodLabel(turth.label) ? turth.label : undefined,
-      byRegion,
-    };
   }
 
-  return null;
+  let candidates: VariableCandidate[];
+  try {
+    candidates = await searchVariables(client, "0000", query, {
+      maxCandidates: 20,
+      year: years[years.length - 1],
+    });
+  } catch {
+    return null;
+  }
+
+  if (candidates.length === 0) return null;
+  return evaluate(candidates);
 }
