@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/setiapam/bps-mcp-server/compare/v0.16.4...v0.17.0) (2026-11-15)
+
+
+### Features
+
+* rank kabupaten/kota nationally in one call ([f3c551a](https://github.com/setiapam/bps-mcp-server/commit/f3c551ae185e36bcc56fa9eab6cfdcff35d3d874))
+
 ## [0.16.4](https://github.com/setiapam/bps-mcp-server/compare/v0.16.3...v0.16.4) (2026-11-14)
 
 
