@@ -9,6 +9,7 @@ MCP (Model Context Protocol) server untuk data statistik BPS (Badan Pusat Statis
 ## Fitur
 
 - **39 tools** mencakup seluruh endpoint BPS WebAPI v1 + AllStats Search + AI-friendly shortcuts
+- **Code Mode (Opsional)** — single tool `execute_bps_code` di sandbox **QuickJS WASM** dengan akses penuh ke seluruh 39 API `bps.*` (return JSON terstruktur + `Promise.all()`), menghemat ~80–85% token schema tool; tersedia lokal (`--code-mode`) maupun remote (`/mcp/code`)
 - **AI-friendly** — tool `find_data` dengan intent detection otomatis (resolve wilayah → detect intent → cari variabel → ambil data)
 - **Intent Detection** — otomatis detect: single value, comparison, trend, ranking, table/breakdown, publication
 - **Stopwords-ISO** — noise removal otomatis untuk 758 kata Indonesia + 1298 kata Inggris
@@ -53,18 +54,19 @@ BPS_API_KEY=your_key npm start
 
 ## Akses Remote via Cloudflare Workers
 
-Server ini tersedia secara publik di:
+Server ini tersedia secara publik melalui dua endpoint:
 
-```
-https://bps-mcp-server.murphi.my.id/mcp
-```
+| Endpoint | Mode | Keterangan |
+|----------|------|------------|
+| `https://bps-mcp-server.murphi.my.id/mcp` | **Standard Mode** (39 tools) | Berjalan penuh di Cloudflare Edge (100% online) |
+| `https://bps-mcp-server.murphi.my.id/mcp/code` | **Code Mode** (`execute_bps_code`) | Hybrid Cloudflare Worker Free + sandbox QuickJS k3s (hemat token & dukung `Promise.all()`); bila backend maintenance, gunakan `/mcp` |
 
 ### Menggunakan di Claude.ai
 
 1. Buka [claude.ai](https://claude.ai) → Settings → Integrations → Add custom connector
 2. Masukkan:
-   - **Name:** BPS Statistics
-   - **URL:** `https://bps-mcp-server.murphi.my.id/mcp`
+   - **Name:** BPS Statistics (atau `BPS Code Mode`)
+   - **URL:** `https://bps-mcp-server.murphi.my.id/mcp` (atau `/mcp/code` untuk Code Mode)
 3. Claude akan membuka halaman otorisasi
 4. Masukkan **BPS API key** Anda (gratis dari [webapi.bps.go.id](https://webapi.bps.go.id))
 5. Klik "Otorisasi" — selesai!
@@ -76,7 +78,8 @@ Server menggunakan OAuth 2.1 sesuai MCP spec. API key Anda tersimpan aman di ser
 Untuk AI client yang mendukung remote MCP dengan OAuth (ChatGPT, Cursor remote, dll):
 
 ```
-MCP Server URL: https://bps-mcp-server.murphi.my.id/mcp
+MCP Server URL (Standard):  https://bps-mcp-server.murphi.my.id/mcp
+MCP Server URL (Code Mode): https://bps-mcp-server.murphi.my.id/mcp/code
 ```
 
 Client akan otomatis melakukan OAuth flow — user hanya perlu memasukkan BPS API key saat halaman otorisasi muncul.
@@ -99,13 +102,15 @@ Untuk client yang mendukung custom headers (Claude Desktop, Cursor lokal):
 }
 ```
 
+> Untuk menggunakan **Code Mode** remote, cukup ganti `url` di atas menjadi `https://bps-mcp-server.murphi.my.id/mcp/code`.
+
 ### Self-hosted
 
 Deploy sebagai serverless worker di akun Cloudflare kamu:
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/setiapam/bps-mcp-server)
 
-Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md).
+Lihat panduan lengkap di [docs/DEPLOY-WORKERS.md](docs/DEPLOY-WORKERS.md) dan panduan self-host **Code Mode (Hybrid Worker + k3s)** di [docs/DEPLOY-K3S-CODEMODE.md](docs/DEPLOY-K3S-CODEMODE.md).
 
 > **Catatan:** Saat ini, BPS WebAPI (`https://webapi.bps.go.id`) sudah tidak memblokir request dari Cloudflare Workers, sehingga Anda dapat mengaksesnya **secara langsung** (tanpa proxy). Namun, **AllStats Search Engine** (`https://searchengine.web.bps.go.id`) masih diblokir oleh Cloudflare bot challenge. Jika Anda menggunakan Cloudflare Workers dan ingin menggunakan fitur AllStats Search/Deep Search, gunakan [bps-api-proxy](https://github.com/setiapam/bps-api-proxy) sebagai relay (deploy di server dengan IP residential) dan set `BPS_ALLSTATS_BASE_URL` di `wrangler.toml` ke URL proxy tersebut.
 
@@ -168,6 +173,72 @@ File `~/.cursor/mcp.json` atau `.vscode/mcp.json`:
   }
 }
 ```
+
+## Code Mode (`execute_bps_code`)
+
+Selain mode standar (39 tools terpisah), server ini mendukung **Code Mode** — pola arsitektur di mana LLM menulis skrip JavaScript asinkron (ES2022+) terhadap API bertipe `bps.*` di dalam sandbox terisolasi **QuickJS WASM**, alih-alih memanggil banyak tool satu per satu.
+
+### Keunggulan Code Mode
+- **Hemat ~80–85% token schema:** hanya mendaftarkan **1 tool** (`execute_bps_code`) dengan deklarasi TypeScript ringkas (`declare const bps`), bukan 39 schema penuh setiap turn.
+- **Komposisi & paralelisme dalam 1 langkah:** LLM dapat menggabungkan beberapa indikator/wilayah via `Promise.all([...])`, lalu memfilter, menghitung rasio, atau mengagregasi hasilnya di dalam sandbox sehingga hanya ringkasan akhir yang masuk ke konteks.
+- **100% cakupan 39 tools sebagai JSON terstruktur:** seluruh tool — termasuk `bps.findData`, `bps.compareData`, `bps.getTrend`, `bps.getRanking`, `bps.getTradeData`, `bps.search`, `bps.allstatsSearch`, `bps.listGlossary`, serta helper `bps.help(methodName?)` — tersedia di namespace `bps.*` dan berbagi *source of truth* yang sama dengan mode standar.
+- **Sandbox aman & terkendali:** setiap eksekusi berjalan di isolate QuickJS baru tanpa `fetch`, `fs`, `process`, `require`, atau `setTimeout`; dilengkapi batas default RAM `32 MB`, stack `512 KB`, timeout `25 detik`, maksimal `30` panggilan `bps.*`, dan output maksimal `50 KB`. Seluruh panggilan ke BPS tetap melewati `RequestScheduler` anti-429.
+
+### Mengaktifkan Code Mode Secara Lokal (`stdio`)
+
+Default CLI tetap mode standar (39 tools, 100% backward-compatible). Aktifkan Code Mode dengan flag `--code-mode` atau env `BPS_CODE_MODE=true` (atau `BPS_MODE=code`):
+
+```bash
+# Via npx
+BPS_API_KEY=your_key npx -y bps-mcp-server --code-mode
+
+# Via Claude Code
+claude mcp add bps-code -- npx -y bps-mcp-server --code-mode
+```
+
+Konfigurasi Claude Desktop / Cursor / `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "bps-code": {
+      "command": "npx",
+      "args": ["-y", "bps-mcp-server", "--code-mode"],
+      "env": {
+        "BPS_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+### Contoh Skrip yang Dijalankan AI di `execute_bps_code`
+
+```js
+const [kemiskinan, tpt, kopi] = await Promise.all([
+  bps.compareData({
+    query: "persentase penduduk miskin",
+    regions: ["Jawa Timur", "Jawa Barat"],
+    years: "2021-2024",
+  }),
+  bps.getRanking({
+    query: "pengangguran",
+    level: "kabkota",
+    provinces: ["Jawa Timur"],
+    top_n: 5,
+    order: "highest",
+  }),
+  bps.getTradeData({ commodity: "kopi", source: "ekspor", year: "2024" }),
+]);
+
+return {
+  kemiskinan: kemiskinan.summary,
+  top5PengangguranJatim: tpt.rows,
+  top3TujuanEksporKopi: kopi.byCountry.slice(0, 3),
+};
+```
+
+> Untuk deployment remote hybrid (**Cloudflare Worker Free `/mcp/code` → Cloudflare Tunnel → k3s Homelab**), lihat panduan lengkap di [docs/DEPLOY-K3S-CODEMODE.md](docs/DEPLOY-K3S-CODEMODE.md) dan arsitektur teknis di [docs/code-mode-plan.md](docs/code-mode-plan.md).
 
 ## Tools (39)
 
@@ -324,6 +395,16 @@ AI menggunakan: find_data(query="pemeluk agama", region="Kab Jombang")
 | `BPS_LOG_LEVEL` | `info` | Level log: debug/info/warn/error |
 | `BPS_ALLSTATS_BASE_URL` | `https://searchengine.web.bps.go.id` | Base URL AllStats Search |
 | `BPS_WORKER_URL` | (kosong) | **Opt-in.** URL worker untuk sinkronisasi learning lintas mesin. Jika diisi, API key Anda dikirim ke server tersebut. |
+| `BPS_CODE_MODE` | `false` | Set `true` (atau `BPS_MODE=code` / flag `--code-mode`) untuk mengaktifkan Code Mode (`execute_bps_code`) di mode `stdio` |
+| `BPS_DATA_DIR` | `~/.bps-mcp` | Direktori penyimpanan `learned-vars.json` (mis. `/data` untuk PVC di k3s) |
+| `CODEMODE_MEMORY_LIMIT_MB` | `32` | Batas memori QuickJS WASM per eksekusi Code Mode |
+| `CODEMODE_STACK_LIMIT_KB` | `512` | Batas ukuran stack QuickJS per eksekusi |
+| `CODEMODE_TIMEOUT_MS` | `25000` | Timeout CPU & I/O per eksekusi Code Mode (ms) |
+| `CODEMODE_MAX_CALLS` | `30` | Maksimum panggilan `bps.*` per eksekusi |
+| `CODEMODE_MAX_OUTPUT_BYTES` | `51200` | Batas ukuran output JSON sebelum dipotong (`truncated: true`) |
+| `CODEMODE_MAX_LOG_BYTES` | `4096` | Batas tangkapan `console.log/warn/error` |
+| `CODEMODE_SHARED_SECRET` | *(wajib untuk HTTP)* | Secret header `X-CodeMode-Secret` untuk backend k3s (`src/http-server.ts`) & Worker proxy |
+| `CODEMODE_MAX_CONCURRENT` | `8` | Maksimum request Code Mode paralel pada HTTP server k3s |
 
 ### Catatan Rate Limit BPS
 
@@ -349,17 +430,25 @@ npm install
 ### Build & Test
 
 ```bash
-npm run build          # Compile TypeScript
-npm run test:unit      # Run unit tests (130+ tests)
-npm run lint           # ESLint check
-npm run typecheck      # TypeScript type check
+npm run build             # Compile TypeScript
+npm run test:unit         # Run unit tests (238 tests)
+npm run lint              # ESLint check
+npm run typecheck         # TypeScript type check (Node/stdio/HTTP)
+npm run typecheck:worker  # TypeScript type check (Cloudflare Worker)
+npm run deploy:dry        # Verifikasi bundle Worker tanpa WASM
 ```
 
 ### Menjalankan Lokal
 
 ```bash
-# Dengan environment variable
+# Mode standar (39 tools)
 BPS_API_KEY=your_key npm start
+
+# Mode Code Mode (1 tool: execute_bps_code)
+BPS_API_KEY=your_key npm run start:code
+
+# HTTP Server Code Mode (untuk container / k3s)
+CODEMODE_SHARED_SECRET=dev-secret npm run start:http
 
 # Atau buat file .env (lihat .env.example)
 cp .env.example .env
@@ -411,27 +500,29 @@ curl -X POST http://localhost:8787/mcp \
 ```
 src/
 ├── auth/           # API key & OAuth2 providers
-├── client/         # BPS WebAPI & AllStats HTTP clients
+├── client/         # BPS WebAPI & AllStats HTTP clients + RequestScheduler
+├── codemode/       # Code Mode (QuickJS WASM sandbox, normalizer, 39-method bps.* API)
+│   ├── executor.ts          # CodeExecutor interface & env limits
+│   ├── quickjs-executor.ts  # QuickJS WASM isolated sandbox + guardrails
+│   ├── normalize-code.ts    # Fence strip, async wrapper, defensive TS strip
+│   ├── bps-api.ts           # Registry 39 method bps.* + validasi Zod + bps.help()
+│   ├── types-doc.ts         # Deklarasi TypeScript ringkas untuk execute_bps_code
+│   └── server.ts            # Factory createCodeModeServer()
 ├── config/         # Configuration & defaults
 ├── prompts/        # MCP prompt templates
 ├── resources/      # MCP resources (domain lists)
-├── services/       # Cache, domain resolver, data formatter
-│   ├── intent-detector.ts   # Intent detection (comparison, trend, ranking, table)
-│   ├── learning.ts          # Persistent learning store + stopwords-iso
-│   ├── domain-resolver.ts   # Fuzzy domain matching
-│   └── data-formatter.ts    # Format BPS data to markdown
-├── tools/          # MCP tool definitions (39 tools)
-│   ├── smart.tools.ts      # find_data, find_variable (AI shortcuts + intent detection)
-│   ├── analysis.tools.ts   # compare_data, get_trend, get_ranking
-│   ├── dynamic-data.tools.ts  # Core data tools
-│   ├── search.tools.ts     # Search with AllStats fallback
-│   ├── allstats.tools.ts   # AllStats search & deep search
-│   └── ...                  # Domain, publication, trade, etc.
+├── services/       # Shared core services (smart, analysis, search, trade, glossary, cache, resolver)
+├── tools/          # Standard MCP tool definitions (39 tools)
 ├── transport/      # stdio transport
-├── utils/          # Logger and error handling
-├── index.ts        # CLI entry point (stdio)
-├── worker.ts       # Cloudflare Worker entry point (HTTP)
-└── server.ts       # MCP server factory
+├── utils/          # Logger, HTML parser, and error handling
+├── index.ts        # CLI entry point (stdio; mendukung --code-mode)
+├── http-server.ts  # Node.js Streamable HTTP Code Mode backend (k3s)
+├── worker.ts       # Cloudflare Worker entry point (/mcp + /mcp/code proxy)
+├── worker-mcp.ts   # Standard MCP handler di Cloudflare Edge
+├── worker-codemode-proxy.ts # Pattern A proxy /mcp/code -> k3s via Cloudflare Tunnel
+└── server.ts       # Standard MCP server factory
+k8s/                # Manifest referensi k3s (Deployment, Service, PVC, NetworkPolicy)
+Dockerfile          # Multi-stage container image untuk Code Mode HTTP backend
 ```
 
 ## Dukungan & Donasi

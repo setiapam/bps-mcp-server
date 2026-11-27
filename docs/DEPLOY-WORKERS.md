@@ -121,7 +121,22 @@ claude mcp add --transport http bps https://bps-mcp-server.<your-subdomain>.work
 ## Health Check
 
 ```bash
-curl https://bps-mcp-server.<your-subdomain>.workers.dev/
+curl https://bps-mcp-server.<your-subdomain>.workers.dev/health
 ```
 
-Returns server info and the MCP endpoint URL.
+Returns server info, the standard `/mcp` endpoint, and `/mcp/code` Code Mode proxy status (`codeModeEnabled`).
+
+## Optional: Enable Code Mode (`/mcp/code` — Pattern A Hybrid Proxy)
+
+The Worker Free bundle intentionally excludes QuickJS WASM so it stays well within Workers Free CPU and 3 MiB bundle limits. To expose `/mcp/code` alongside `/mcp`:
+
+1. Deploy the k3s / Docker Code Mode sandbox backend (`src/http-server.ts`) behind a Cloudflare Tunnel — see [DEPLOY-K3S-CODEMODE.md](DEPLOY-K3S-CODEMODE.md).
+2. Set `CODEMODE_BACKEND_URL` under `[vars]` in `wrangler.toml` (e.g. `https://bps-codemode.your-domain.com`).
+3. Set the matching shared secret in Cloudflare Workers:
+   ```bash
+   npx wrangler secret put CODEMODE_SHARED_SECRET
+   ```
+   *(Optional, if your Tunnel is protected by Cloudflare Access)* Also set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` via `wrangler secret put`.
+4. Redeploy with `npm run typecheck:worker && npm run deploy`.
+
+When the homelab backend is offline or unconfigured, `/mcp/code` returns an informative `503` directing clients to `/mcp`, while standard `/mcp` remains 100% online at the Cloudflare edge.
