@@ -26,6 +26,8 @@
     "tests",
     "src/worker.ts",
     "src/worker-mcp.ts",
+    "src/worker-codemode-proxy.ts",
+    "src/worker-rate-limit.ts",
     "src/auth/oauth-handler.ts",
     "src/services/kv-cache.ts",
     "src/services/kv-store.ts",

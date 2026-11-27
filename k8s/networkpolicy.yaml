@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bps-mcp-codemode-netpol
+  labels:
+    app: bps-mcp-codemode
+    app.kubernetes.io/name: bps-mcp-codemode
+spec:
+  podSelector:
+    matchLabels:
+      app: bps-mcp-codemode
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Izinkan trafik HTTP 3000 hanya dari pod cloudflared.
+    # Sesuaikan label/namespace selector dengan deployment cloudflared di cluster Anda.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: cloudflared
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Izinkan DNS cluster (CoreDNS/kube-dns)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Izinkan egress ke internet publik (BPS WebAPI & AllStats),
+    # blokir seluruh CIDR privat / LAN rumah (anti-SSRF).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

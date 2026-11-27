@@ -2,15 +2,10 @@ import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { BpsClient } from "../client/bps-client.js";
 import type { Config } from "../config/index.js";
-import { formatDynamicData, formatList, buildStructuredPayload } from "../services/data-formatter.js";
+import { formatDynamicData, formatList } from "../services/data-formatter.js";
 import { appendAttribution } from "../services/attribution.js";
-import { DOMAIN_ALIASES } from "../config/domain-aliases.js";
 import { formatErrorForUser } from "../utils/error.js";
-import {
-  describeMissingYears,
-  parseYearSpec,
-  resolvePeriodsForSpec,
-} from "../services/period-resolver.js";
+import { getDynamicDataService } from "../services/dynamic-data-service.js";
 import {
   formatUnit,
   getPeriodId,
@@ -26,37 +21,6 @@ import {
   getVervarId,
   getVervarLabel,
 } from "../client/fields.js";
-
-
-/** Province names, derived from the alias table (codes like 3500). */
-const PROVINCE_LABELS: Set<string> = new Set(
-  Object.entries(DOMAIN_ALIASES)
-    .filter(([, code]) => code.length === 4 && code !== "0000" && code.endsWith("00"))
-    .map(([name]) => name)
-);
-
-function normalizeRegionLabel(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/\b(provinsi|propinsi|prov)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-/** When a table lists many kab/kota, point at its official aggregate row. */
-function aggregateRowNote(result: { vervar?: unknown[] }): string | null {
-  const entries = (result.vervar ?? [])
-    .map((vervar) => ({ id: getVervarId(vervar), label: getVervarLabel(vervar) }))
-    .filter((entry) => entry.label !== "");
-  if (entries.length <= 10) return null;
-  const hit =
-    entries.find((entry) => PROVINCE_LABELS.has(normalizeRegionLabel(entry.label))) ??
-    entries.find((entry) => /^(provinsi|propinsi)\b/i.test(entry.label)) ??
-    entries.find((entry) => /\bindonesia\b/i.test(entry.label)) ??
-    entries.find((entry) => /^(total|jumlah)$/i.test(entry.label));
-  if (!hit) return null;
-  return `Tabel memuat ${entries.length} kategori; baris agregat "${hit.label}" adalah angka resmi wilayah — pakai baris itu, jangan menjumlahkan kabupaten/kota.`;
-}
 
 export function registerDynamicDataTools(server: McpServer, client: BpsClient, config: Config): void {
   server.tool(
@@ -302,82 +266,41 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
             isError: true,
           };
         }
-        const varId = String(varArg);
-        const firstVar = varId.split(/[,;]/)[0]?.trim();
-        const numericVar = Number(firstVar);
-        const hasNumericVar = Number.isFinite(numericVar) && numericVar > 0;
 
-        let period = th;
-        let periodNote = "";
-        let periodsUsed: Array<{ id: string; label: string }> = [];
+        const outcome = await getDynamicDataService(client, {
+          domain,
+          var: varArg,
+          th,
+          turvar,
+          vervar,
+          turth,
+        });
 
-        // Years → period IDs. BPS only accepts IDs, and answering an unknown
-        // year with an empty dataset wastes the caller's next few calls.
-        if (hasNumericVar) {
-          const spec = parseYearSpec(th);
-          if (spec.hasSpec || !period) {
-            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, th);
-            if (resolved.entries.length === 0) {
-              const yearText = spec.years.length > 0 ? spec.years.join(", ") : String(th);
-              const available = resolved.availableLabels.length > 0
-                ? `Periode tersedia: ${resolved.availableLabels.join(", ")}`
-                : "Variabel ini tidak memiliki daftar periode yang bisa dibaca.";
-              return {
-                content: [{
-                  type: "text",
-                  text: appendAttribution(
-                    `Tidak ada data untuk periode ${yearText} pada variabel ${numericVar} (domain ${domain}).\n\n${available}\n\n` +
-                    `**Saran:** pakai tahun lain, atau panggil find_variable(keyword="...", domain="${domain}") untuk variabel dengan cakupan tahun yang diinginkan.`
-                  ),
-                }],
-                isError: true,
-              };
-            }
-            period = resolved.entries.map((entry) => entry.id).join(";");
-            periodsUsed = resolved.entries.map((entry) => ({ id: entry.id, label: entry.label }));
-
-            const notes: string[] = [];
-            const missing = describeMissingYears(resolved.missingYears, resolved.availableYears);
-            if (missing) notes.push(missing);
-            if (!spec.hasSpec) {
-              notes.push(`Periode terbaru dipilih otomatis: ${resolved.entries[0].label} (ID: ${resolved.entries[0].id}).`);
-            }
-            periodNote = notes.join(" ");
-          }
-        }
-
-        let result;
-        try {
-          result = await client.getDynamicData(domain, varId, period, turvar, vervar, turth);
-        } catch (error) {
-          if (hasNumericVar) {
-            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, undefined).catch(() => null);
-            const available = resolved?.availableLabels.length
-              ? ` Periode tersedia: ${resolved.availableLabels.join(", ")}.`
-              : "";
-            throw new Error(
-              `${error instanceof Error ? error.message : "Gagal mengambil data"}${available}`,
-              { cause: error }
-            );
-          }
-          throw error;
-        }
-
-        const rowCount = Object.keys(result.datacontent ?? {}).length;
-        if (rowCount === 0) {
-          // Never return a silent empty payload: say which periods do have data.
-          let available = "";
-          if (hasNumericVar) {
-            const resolved = await resolvePeriodsForSpec(client, domain, numericVar, undefined).catch(() => null);
-            if (resolved?.availableYears.length) {
-              available = ` Tahun tersedia: ${resolved.availableYears.join(", ")}.`;
-            }
-          }
+        if (outcome.status === "period_not_found") {
+          const available = outcome.availableLabels.length > 0
+            ? `Periode tersedia: ${outcome.availableLabels.join(", ")}`
+            : "Variabel ini tidak memiliki daftar periode yang bisa dibaca.";
           return {
             content: [{
               type: "text",
               text: appendAttribution(
-                `Data kosong untuk var ${varId} (domain ${domain}) pada periode yang diminta.${available}\n\n` +
+                `Tidak ada data untuk periode ${outcome.requestedText} pada variabel ${outcome.varId} (domain ${domain}).\n\n${available}\n\n` +
+                `**Saran:** pakai tahun lain, atau panggil find_variable(keyword="...", domain="${domain}") untuk variabel dengan cakupan tahun yang diinginkan.`
+              ),
+            }],
+            isError: true,
+          };
+        }
+
+        if (outcome.status === "empty") {
+          const available = outcome.availableYears.length > 0
+            ? ` Tahun tersedia: ${outcome.availableYears.join(", ")}.`
+            : "";
+          return {
+            content: [{
+              type: "text",
+              text: appendAttribution(
+                `Data kosong untuk var ${outcome.varId} (domain ${domain}) pada periode yang diminta.${available}\n\n` +
                 `**Saran:** cek kombinasi turvar/vervar, atau pakai get_ranking/find_data.`
               ),
             }],
@@ -386,17 +309,19 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
         }
 
         if (format === "json") {
-          const payload = buildStructuredPayload(result, domain);
           return {
             content: [{
               type: "text",
               text: JSON.stringify(
                 {
-                  ...payload,
-                  period: period ?? null,
-                  periodsUsed,
-                  autoPeriodNote: periodNote || undefined,
-                  aggregateNote: aggregateRowNote(result) || undefined,
+                  domain: outcome.domain,
+                  rows: outcome.rows,
+                  units: outcome.units,
+                  note: outcome.note,
+                  period: outcome.period,
+                  periodsUsed: outcome.periodsUsed,
+                  autoPeriodNote: outcome.periodNote,
+                  aggregateNote: outcome.aggregateNote,
                 },
                 null,
                 2
@@ -405,9 +330,8 @@ Gunakan find_variable untuk mencari ID variabel lainnya.`,
           };
         }
 
-        const text = formatDynamicData(result, domain, config.defaultLang, { includeAttribution: false });
-        const aggregateNote = aggregateRowNote(result);
-        const notes = [periodNote, aggregateNote].filter(Boolean).join(" ");
+        const text = formatDynamicData(outcome.raw, domain, config.defaultLang, { includeAttribution: false });
+        const notes = [outcome.periodNote, outcome.aggregateNote].filter(Boolean).join(" ");
         const suffix = notes ? `\n\n_${notes}_` : "";
         return { content: [{ type: "text", text: appendAttribution(text + suffix) }] };
       } catch (error) {

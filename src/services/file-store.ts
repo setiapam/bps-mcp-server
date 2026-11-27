@@ -4,14 +4,16 @@ import { homedir } from "node:os";
 import type { IPersistentStore } from "./persistent-store.js";
 import { logger } from "../utils/logger.js";
 
-const STORE_DIR = join(homedir(), ".bps-mcp");
-const STORE_FILE = join(STORE_DIR, "learned-vars.json");
+const DEFAULT_STORE_DIR = join(homedir(), ".bps-mcp");
 const FLUSH_DELAY_MS = 5_000;
 const SYNC_TIMEOUT_MS = 5_000;
 
 /**
- * File-based persistent store for stdio transport.
+ * File-based persistent store for stdio & k3s HTTP transports.
  * Reads from disk on init, writes debounced.
+ *
+ * Set BPS_DATA_DIR to override the default `~/.bps-mcp` directory (e.g. `/data`
+ * mounted on a PersistentVolumeClaim in k3s).
  *
  * Remote sync is opt-in: set BPS_WORKER_URL explicitly. The server will not
  * send your BPS API key to a third-party host by default.
@@ -22,10 +24,14 @@ export class FileStore implements IPersistentStore {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly workerUrl: string;
   private readonly apiKey: string | null;
+  private readonly storeDir: string;
+  private readonly storeFile: string;
 
-  constructor(workerUrl?: string, apiKey?: string) {
-    this.workerUrl = workerUrl || process.env.BPS_WORKER_URL || "";
-    this.apiKey = apiKey || process.env.BPS_API_KEY || null;
+  constructor(workerUrl?: string, apiKey?: string, dataDir?: string) {
+    this.workerUrl = workerUrl ?? process.env.BPS_WORKER_URL ?? "";
+    this.apiKey = apiKey !== undefined ? (apiKey || null) : (process.env.BPS_API_KEY || null);
+    this.storeDir = dataDir || process.env.BPS_DATA_DIR || DEFAULT_STORE_DIR;
+    this.storeFile = join(this.storeDir, "learned-vars.json");
     this.load();
     if (this.workerUrl && this.apiKey) {
       this.syncFromWorker();
@@ -34,8 +40,8 @@ export class FileStore implements IPersistentStore {
 
   private load(): void {
     try {
-      if (existsSync(STORE_FILE)) {
-        const raw = readFileSync(STORE_FILE, "utf-8");
+      if (existsSync(this.storeFile)) {
+        const raw = readFileSync(this.storeFile, "utf-8");
         this.data = JSON.parse(raw);
         logger.debug(`FileStore: loaded ${Object.keys(this.data).length} entries`);
       }
@@ -99,8 +105,8 @@ export class FileStore implements IPersistentStore {
   private flush(): void {
     if (!this.dirty) return;
     try {
-      mkdirSync(STORE_DIR, { recursive: true });
-      writeFileSync(STORE_FILE, JSON.stringify(this.data), "utf-8");
+      mkdirSync(this.storeDir, { recursive: true });
+      writeFileSync(this.storeFile, JSON.stringify(this.data), "utf-8");
       this.dirty = false;
       logger.debug(`FileStore: flushed ${Object.keys(this.data).length} entries`);
     } catch (err) {

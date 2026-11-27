@@ -25,6 +25,9 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node --env-file=.env dist/index.js",
+    "start:code": "node --env-file=.env dist/index.js --code-mode",
+    "start:http": "node --env-file=.env dist/http-server.js",
+    "dev:http": "node --watch --env-file=.env dist/http-server.js",
     "prepublishOnly": "npm run build",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
@@ -41,6 +44,7 @@
     "@cloudflare/workers-oauth-provider": "^0.10.4",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "cheerio": "^1.2.0",
+    "quickjs-emscripten": "^0.32.0",
     "stopwords-iso": "^1.1.0",
     "zod": "^4.6.7"
   },

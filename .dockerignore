@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-worker
+.git
+.github
+.wrangler
+tests
+docs
+k8s
+scripts
+coverage
+.env
+.env.*
+*.log
+.DS_Store

@@ -2,6 +2,7 @@ import OAuthProvider, { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { handleAuthorize } from "./auth/oauth-handler.js";
 import { McpHandler } from "./worker-mcp.js";
+import { CodeModeProxyHandler } from "./worker-codemode-proxy.js";
 import { handleLearningApi } from "./api/learning-api.js";
 import { handleTestWaf } from "./api/test-waf.js";
 
@@ -16,11 +17,23 @@ export interface Env {
   BPS_DEFAULT_DOMAIN?: string;
   BPS_LOG_LEVEL?: string;
   RATE_LIMIT_RPM?: string;
+  /** Pattern A: Cloudflare Tunnel origin URL for k3s Code Mode pod (e.g. https://bps-codemode.murphi.my.id) */
+  CODEMODE_BACKEND_URL?: string;
+  /** Pattern A: Shared secret injected as X-CodeMode-Secret (wrangler secret put CODEMODE_SHARED_SECRET) */
+  CODEMODE_SHARED_SECRET?: string;
+  /** Optional Cloudflare Access Service Token headers when Tunnel is behind Access */
+  CF_ACCESS_CLIENT_ID?: string;
+  CF_ACCESS_CLIENT_SECRET?: string;
 }
 
-const oauthOptions = {
-  apiRoute: "/mcp",
-  apiHandler: McpHandler,
+export const oauthOptions = {
+  // IMPORTANT: `/mcp/code` MUST be declared before `/mcp` because
+  // @cloudflare/workers-oauth-provider's matchApiRoute() matches via startsWith()
+  // in object property insertion order.
+  apiHandlers: {
+    "/mcp/code": CodeModeProxyHandler,
+    "/mcp": McpHandler,
+  },
   defaultHandler: {
     async fetch(request: Request, env: Env): Promise<Response> {
       const url = new URL(request.url);
@@ -33,6 +46,8 @@ const oauthOptions = {
             status: "ok",
             transport: "streamable-http",
             mcpEndpoint: "/mcp",
+            codeModeEndpoint: "/mcp/code",
+            codeModeEnabled: Boolean(env.CODEMODE_BACKEND_URL),
             auth: "OAuth 2.1 (MCP spec compliant)",
             tools: 39,
             docs: "https://github.com/setiapam/bps-mcp-server",

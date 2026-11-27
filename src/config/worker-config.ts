@@ -27,5 +27,6 @@ export function loadWorkerConfig(env: WorkerEnv, apiKey: string): Config {
     cacheEnabled: env.BPS_CACHE_ENABLED !== "false",
     cacheMaxEntries: DEFAULTS.CACHE_MAX_ENTRIES,
     logLevel: (env.BPS_LOG_LEVEL || "warn") as "debug" | "info" | "warn" | "error",
+    codeMode: false,
   };
 }

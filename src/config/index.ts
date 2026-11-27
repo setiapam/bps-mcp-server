@@ -19,6 +19,7 @@ const ConfigSchema = z
     cacheMaxEntries: z.int().positive().default(DEFAULTS.CACHE_MAX_ENTRIES),
 
     logLevel: z.enum(["debug", "info", "warn", "error"]).default(DEFAULTS.LOG_LEVEL),
+    codeMode: z.boolean().default(false),
   })
   .refine(
     (data) => {
@@ -39,7 +40,21 @@ function detectAuthType(env: NodeJS.ProcessEnv): "api-key" | "oauth2" {
   return "api-key";
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export function isCodeModeEnabled(
+  argv: readonly string[] = process.argv,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (argv.includes("--code-mode")) return true;
+  const flag = env.BPS_CODE_MODE?.trim().toLowerCase();
+  if (flag === "true" || flag === "1" || flag === "yes") return true;
+  if (env.BPS_MODE?.trim().toLowerCase() === "code") return true;
+  return false;
+}
+
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv
+): Config {
   const raw = {
     authType: detectAuthType(env),
     apiKey: env.BPS_API_KEY,
@@ -56,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? parseInt(env.BPS_CACHE_MAX_ENTRIES, 10)
       : DEFAULTS.CACHE_MAX_ENTRIES,
     logLevel: env.BPS_LOG_LEVEL || DEFAULTS.LOG_LEVEL,
+    codeMode: isCodeModeEnabled(argv, env),
   };
 
   return ConfigSchema.parse(raw);

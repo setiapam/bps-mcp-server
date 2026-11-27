@@ -6,7 +6,8 @@ import type {
   AllStatsDeepSearchResponse,
 } from "../client/allstats-client.js";
 import { appendAttribution } from "../services/attribution.js";
-import { inferContentTypeFromUrl, searchQueryFallbacks } from "../services/search-query.js";
+import { inferContentTypeFromUrl } from "../services/search-query.js";
+import { allstatsSearchService } from "../services/search-service.js";
 
 // ========== Formatters ==========
 
@@ -161,50 +162,19 @@ export function registerAllStatsTools(
     },
     async ({ query, content, domain, page, title_only, year_from, year_to, sort }) => {
       try {
-        let effectiveQuery = query;
-        let result = await allStatsClient.search({
+        const result = await allstatsSearchService(allStatsClient, {
           query,
           content,
           domain,
           page,
-          titleOnly: title_only,
-          yearFrom: year_from,
-          yearTo: year_to,
+          title_only,
+          year_from,
+          year_to,
           sort,
         });
 
-        // The engine indexes derived words poorly: "kemiskinan" returns 0 while
-        // "miskin" returns hundreds. Retry the root automatically instead of
-        // letting the caller burn another tool call on the same question. Pick
-        // the best fallback (not merely the first non-empty): "penganggur"
-        // yields 1 hit while "tpt" yields hundreds.
-        if (result.results.length === 0) {
-          let best: { query: string; response: AllStatsSearchResponse } | null = null;
-          for (const fallback of searchQueryFallbacks(query)) {
-            const retry = await allStatsClient.search({
-              query: fallback,
-              content,
-              domain,
-              page,
-              titleOnly: title_only,
-              yearFrom: year_from,
-              yearTo: year_to,
-              sort,
-            });
-            if (retry.results.length === 0) continue;
-            if (!best || retry.results.length > best.response.results.length) {
-              best = { query: fallback, response: retry };
-            }
-            if (best.response.results.length >= 5) break;
-          }
-          if (best) {
-            effectiveQuery = best.query;
-            result = best.response;
-          }
-        }
-
-        const note = effectiveQuery !== query
-          ? `_Kata kunci "${query}" tidak menghasilkan apa pun; hasil di bawah memakai akar kata "${effectiveQuery}"._\n\n`
+        const note = result.effectiveQuery !== query
+          ? `_Kata kunci "${query}" tidak menghasilkan apa pun; hasil di bawah memakai akar kata "${result.effectiveQuery}"._\n\n`
           : "";
         const text = appendAttribution(note + formatSearchResults(result));
         return { content: [{ type: "text", text }] };

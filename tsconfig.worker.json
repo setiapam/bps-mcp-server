@@ -22,6 +22,9 @@
   "exclude": [
     "node_modules",
     "dist",
-    "tests"
+    "tests",
+    "src/index.ts",
+    "src/http-server.ts",
+    "src/codemode/quickjs-executor.ts"
   ]
 }

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bps-mcp-codemode-data
+  labels:
+    app: bps-mcp-codemode
+    app.kubernetes.io/name: bps-mcp-codemode
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

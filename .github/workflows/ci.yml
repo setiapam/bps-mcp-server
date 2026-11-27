@@ -18,6 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run typecheck:worker
+      - run: npm run build
 
   test-unit:
     runs-on: ubuntu-latest

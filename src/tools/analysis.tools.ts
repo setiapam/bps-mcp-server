@@ -5,20 +5,14 @@ import type { Config } from "../config/index.js";
 import type { DomainResolver } from "../services/domain-resolver.js";
 import type { IPersistentStore } from "../services/persistent-store.js";
 import { appendAttribution } from "../services/attribution.js";
-import { lookupVar, normalizeKeyword } from "../services/learning.js";
-import { resolveVariable as resolveVariableShared, searchVariables } from "../services/variable-search.js";
-import { formatKabkotaRanking, rankKabkota } from "../services/kabkota-ranking.js";
-import { findKabkotaIndicator } from "../config/kabkota-indicators.js";
-import { buildNationalBreakdown, buildRegionSeries, type RegionSeries } from "../services/region-series.js";
-import { parseYearSpec } from "../services/period-resolver.js";
-import { extractVervarId, getVervarEntries } from "../services/dynamic-data-utils.js";
+import { formatKabkotaRanking } from "../services/kabkota-ranking.js";
+import type { RegionSeries } from "../services/region-series.js";
+import { formatUnit } from "../client/fields.js";
 import {
-  formatUnit,
-  getPeriodId,
-  getPeriodLabel,
-  getVariableTitle,
-  getVariableUnit,
-} from "../client/fields.js";
+  compareDataService,
+  getRankingService,
+  getTrendService,
+} from "../services/analysis-service.js";
 
 /**
  * Multi-region comparison, trend, and ranking tools.
@@ -28,7 +22,7 @@ export function registerAnalysisTools(
   server: McpServer,
   client: BpsClient,
   resolver: DomainResolver,
-  config: Config,
+  _config: Config,
   store: IPersistentStore | null
 ): void {
   // ---------- compare_data ----------
@@ -57,169 +51,58 @@ Contoh query user yang cocok untuk tool ini:
       start_year: z.string().optional().describe("Tahun awal untuk perbandingan multi-tahun"),
       end_year: z.string().optional().describe("Tahun akhir untuk perbandingan multi-tahun"),
     },
-    async ({ query, regions: regionsInput, wilayah, provinces, year, years, start_year, end_year }) => {
+    async ({ query, regions, wilayah, provinces, year, years, start_year, end_year }) => {
       try {
-        const regions = regionsInput ?? wilayah ?? provinces ?? "";
-        if (!regions.trim()) {
-          return { content: [{ type: "text", text: "Parameter 'regions' wajib diisi, misal regions=\"Jawa Timur, Jawa Barat\"." }], isError: true };
-        }
-        const regionList = regions.split(",").map(r => r.trim()).filter(Boolean);
-        if (regionList.length < 2) {
-          return { content: [{ type: "text", text: "Minimal 2 wilayah untuk perbandingan." }], isError: true };
-        }
+        const result = await compareDataService(client, resolver, store, {
+          query,
+          regions,
+          wilayah,
+          provinces,
+          year,
+          years,
+          start_year,
+          end_year,
+        });
 
-        const spec = years ?? (start_year ? `${start_year}-${end_year ?? start_year}` : year);
-        const parsed = parseYearSpec(spec);
-        const multiYear = parsed.years.length > 1 || parsed.periodIds.length > 1;
-
-        const resolvedRegions = await Promise.all(
-          regionList.map(async (regionName) => ({
-            regionName,
-            resolved: await resolver.resolve(regionName),
-          }))
-        );
-
-        const seriesList: RegionSeries[] = [];
-        let usedNationalTable = false;
-
-        // Fast path: all regions are provinces and one national table already
-        // lists them all. One request, one unit, full precision.
-        const provinceOnly =
-          resolvedRegions.length > 1 &&
-          resolvedRegions.every(
-            (item) =>
-              item.resolved !== null &&
-              /^\d{4}$/.test(item.resolved.domainId) &&
-              item.resolved.domainId.endsWith("00")
-          );
-
-        if (provinceOnly) {
-          const breakdown = await buildNationalBreakdown(
-            client,
-            query,
-            resolvedRegions.map((item) => ({
-              name: item.regionName,
-              domainName: item.resolved!.domainName,
-            })),
-            parsed.years,
-            store
-          );
-          if (breakdown) {
-            usedNationalTable = true;
-            for (const item of resolvedRegions) {
-              const points = breakdown.byRegion.get(item.resolved!.domainName) ?? [];
-              seriesList.push({
-                region: item.regionName,
-                domain: "0000",
-                domainName: item.resolved!.domainName,
-                varId: breakdown.varId,
-                varTitle: breakdown.varTitle,
-                unit: breakdown.unit,
-                seriesLabel: breakdown.seriesLabel,
-                points,
-                missingYears: parsed.years.filter(
-                  (year) => !points.some((point) => point.year === year)
-                ),
-                availableYears: [],
-                notes: [],
-              });
-            }
-          }
-        }
-
-        if (!usedNationalTable) {
-          for (const item of resolvedRegions) {
-            if (!item.resolved) {
-              seriesList.push({
-                region: item.regionName, domain: "?", domainName: item.regionName, varId: null,
-                varTitle: query, points: [], missingYears: parsed.years, availableYears: [],
-                notes: ["Wilayah tidak ditemukan."],
-              });
-              continue;
-            }
-            const series = await buildRegionSeries(
-              client,
-              store,
-              query,
-              item.regionName,
-              item.resolved.domainId,
-              item.resolved.domainName,
-              { years: parsed.years, maxCandidates: 6 }
-            );
-            seriesList.push(series);
-          }
-        }
-
+        const seriesList = result.series;
         const withData = seriesList.filter((series) => series.points.length > 0);
-        if (withData.length === 0) {
-          const detail = seriesList.map((series) => `- ${series.region}: ${series.notes.join(" ") || "tidak ada data"}`);
+
+        if (!result.hasData || withData.length === 0) {
+          const detail = seriesList.map(
+            (series) => `- ${series.region}: ${series.notes.join(" ") || "tidak ada data"}`
+          );
           return {
             content: [{
               type: "text",
               text: appendAttribution(
-                `Tidak ada data "${query}"${spec ? ` untuk ${spec}` : ""} di ${regionList.join(", ")}.\n\n${detail.join("\n")}\n\n` +
+                `Tidak ada data "${query}"${result.spec ? ` untuk ${result.spec}` : ""} di ${result.regionsRequested.join(", ")}.\n\n${detail.join("\n")}\n\n` +
                 `**Saran:** pakai find_variable(keyword="${query}", domain="<kode provinsi>") untuk melihat variabel yang tersedia, atau get_ranking untuk membandingkan seluruh provinsi.`
               ),
             }],
           };
         }
 
-        const varTitle = withData[0].varTitle || query;
-        const sameTitle = new Set(withData.map((series) => series.varTitle)).size === 1;
-        const displayTitle = sameTitle
-          ? varTitle
-          : query.charAt(0).toUpperCase() + query.slice(1);
-
-        // Provinces sometimes expose the same count in different units
-        // ("Ribu Jiwa" vs "Juta Jiwa"). Normalize before diffing, otherwise
-        // the "Selisih" column is nonsense.
-        const originalUnits = [...new Set(withData.map((series) => series.unit).filter(Boolean))];
-        const massScale = (unit?: string): number | null => {
-          const normalized = (unit ?? "").toLowerCase().trim();
-          if (normalized === "juta jiwa" || normalized === "juta orang") return 1000;
-          if (normalized === "ribu jiwa" || normalized === "ribu orang") return 1;
-          if (normalized === "jiwa" || normalized === "orang") return 0.001;
-          return null;
-        };
-        const scales = withData.map((series) => massScale(series.unit));
-        const canNormalize = withData.length > 1 && scales.every((scale) => scale !== null);
-        let unitNote = "";
-        if (canNormalize) {
-          withData.forEach((series, index) => {
-            const scale = scales[index] as number;
-            series.points = series.points.map((point) => ({ ...point, value: point.value * scale }));
-            series.unit = "Ribu Jiwa";
-          });
-          if (originalUnits.length > 1) {
-            unitNote = `Satuan diseragamkan ke Ribu Jiwa (asli: ${originalUnits.join(", ")}).`;
-          }
-        }
-
-        const units = new Set(withData.map((series) => series.unit).filter(Boolean));
-        const unitLabel = units.size === 1 ? formatUnit([...units][0]) : "";
-        const seriesLabel = withData.find((series) => series.seriesLabel)?.seriesLabel;
-
+        const unitLabel = result.unit ?? "";
         const formatValue = (series: RegionSeries, value: number) => {
           const unit = formatUnit(series.unit);
           return `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ""}`;
         };
 
         const unitInTitle = unitLabel
-          ? new RegExp(`\\(${unitLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "i").test(displayTitle)
+          ? new RegExp(`\\(${unitLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "i").test(result.displayTitle)
           : true;
         const lines: string[] = [
-          `## Perbandingan: ${displayTitle}${unitLabel && !unitInTitle ? ` (${unitLabel})` : ""}`,
+          `## Perbandingan: ${result.displayTitle}${unitLabel && !unitInTitle ? ` (${unitLabel})` : ""}`,
           `**Wilayah:** ${withData.map((series) => series.domainName).join(", ")}`,
         ];
 
-        if (!multiYear) {
+        if (!result.multiYear) {
           const first = withData[0];
           const periodLabel = first.points[0]?.label ?? "";
-          lines.push(`**Periode:** ${periodLabel || "Terbaru"}${seriesLabel ? ` | **Seri:** ${seriesLabel}` : ""}`, "");
-
-          if (parsed.hasSpec || (spec && !year)) {
-            // fall through to table
-          }
+          lines.push(
+            `**Periode:** ${periodLabel || "Terbaru"}${result.seriesLabel ? ` | **Seri:** ${result.seriesLabel}` : ""}`,
+            ""
+          );
           lines.push("| Wilayah | Nilai | Periode |", "| --- | --- | --- |");
           for (const series of seriesList) {
             const point = series.points[0];
@@ -232,23 +115,30 @@ Contoh query user yang cocok untuk tool ini:
 
           const numeric = seriesList
             .filter((series) => series.points.length > 0)
-            .map((series) => ({ region: series.region, value: series.points[0].value, text: formatValue(series, series.points[0].value) }));
+            .map((series) => ({
+              region: series.region,
+              value: series.points[0].value,
+              text: formatValue(series, series.points[0].value),
+            }));
           if (numeric.length >= 2) {
             const sorted = [...numeric].sort((a, b) => b.value - a.value);
             lines.push("");
             lines.push(`**Tertinggi:** ${sorted[0].region} (${sorted[0].text})`);
             lines.push(`**Terendah:** ${sorted[sorted.length - 1].region} (${sorted[sorted.length - 1].text})`);
           }
-          if (units.size > 1) {
-            lines.push("", `_Catatan: satuan berbeda antar wilayah (${[...units].join(", ")}); bandingkan dengan hati-hati._`);
+          if (result.units.length > 1) {
+            lines.push(
+              "",
+              `_Catatan: satuan berbeda antar wilayah (${result.units.join(", ")}); bandingkan dengan hati-hati._`
+            );
           }
         } else {
-          const yearKeys = [...new Set(
-            withData.flatMap((series) => series.points.map((point) => point.year))
-          )].sort();
-
-          const yearRange = yearKeys.length > 1 ? `${yearKeys[0]}–${yearKeys[yearKeys.length - 1]}` : yearKeys[0];
-          lines.push(`**Periode:** ${yearRange}${seriesLabel ? ` | **Seri:** ${seriesLabel}` : ""}`, "");
+          const yearKeys = result.summary?.yearKeys ?? [];
+          const yearRange = result.summary?.yearRange ?? "";
+          lines.push(
+            `**Periode:** ${yearRange}${result.seriesLabel ? ` | **Seri:** ${result.seriesLabel}` : ""}`,
+            ""
+          );
 
           const header = ["Tahun", ...withData.map((series) => series.region)];
           if (withData.length === 2) header.push("Selisih");
@@ -264,9 +154,10 @@ Contoh query user yang cocok untuk tool ini:
             if (withData.length === 2) {
               const left = withData[0].points.find((point) => point.year === key)?.value;
               const right = withData[1].points.find((point) => point.year === key)?.value;
-              const diff = left !== undefined && right !== undefined
-                ? (left - right).toLocaleString("id-ID", { maximumFractionDigits: 2 })
-                : "-";
+              const diff =
+                left !== undefined && right !== undefined
+                  ? (left - right).toLocaleString("id-ID", { maximumFractionDigits: 2 })
+                  : "-";
               row.push(diff);
             }
             lines.push(`| ${row.join(" | ")} |`);
@@ -291,36 +182,16 @@ Contoh query user yang cocok untuk tool ini:
           }
         }
 
-        const extraNotes = seriesList.flatMap((series) =>
-          series.notes.map((note) => `${series.region}: ${note}`)
-        );
-        if (unitNote) extraNotes.unshift(unitNote);
-        if (usedNationalTable) {
-          extraNotes.unshift(
-            "Satu tabel nasional dipakai untuk semua wilayah, sehingga satuan dan presisinya konsisten."
-          );
-        }
-        if (extraNotes.length > 0) {
+        if (result.notes.length > 0) {
           lines.push("", "_Catatan:_");
-          for (const note of [...new Set(extraNotes)]) lines.push(`- ${note}`);
+          for (const note of result.notes) lines.push(`- ${note}`);
         }
 
-        const sourceKeys = new Set<string>();
-        const sources = seriesList
-          .filter((series) => series.varId !== null)
-          .filter((series) => {
-            const key = `${series.varId}:${series.domain}`;
-            if (sourceKeys.has(key)) return false;
-            sourceKeys.add(key);
-            return true;
-          })
-          .map((series) => {
-            const shared = seriesList.filter((other) => other.varId === series.varId && other.domain === series.domain);
-            const who = shared.length > 1 ? "semua wilayah" : series.region;
-            return `${who}: ${series.varTitle} (var ${series.varId}, domain ${series.domain})`;
-          });
-        if (sources.length > 0) {
-          lines.push("", `_Sumber variabel — ${sources.join("; ")}._`);
+        if (result.sources.length > 0) {
+          const sourceText = result.sources
+            .map((s) => `${s.who}: ${s.varTitle} (var ${s.varId}, domain ${s.domain})`)
+            .join("; ");
+          lines.push("", `_Sumber variabel — ${sourceText}._`);
           lines.push(
             "_Angka di atas diambil dari baris agregat resmi tiap tabel; jangan menjumlahkan baris kabupaten/kota._"
           );
@@ -328,7 +199,10 @@ Contoh query user yang cocok untuk tool ini:
 
         return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal membandingkan data" }], isError: true };
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal membandingkan data" }],
+          isError: true,
+        };
       }
     }
   );
@@ -354,105 +228,70 @@ Contoh query user yang cocok untuk tool ini:
       end_year: z.string().default("2024").describe("Tahun akhir"),
       years: z.string().optional().describe("Alternatif rentang: '2021-2025' atau '2021,2022,2023' (mengalahkan start/end)."),
     },
-    async ({ query, region: regionInput, wilayah, start_year, end_year, years }) => {
-      const region = regionInput || wilayah || "Indonesia";
+    async ({ query, region, wilayah, start_year, end_year, years }) => {
       try {
-        // Resolve domain
-        let domain = "0000";
-        let domainName = "Indonesia";
-        if (region.toLowerCase() !== "indonesia" && region !== "0000") {
-          const resolved = await resolver.resolve(region);
-          if (!resolved) {
-            return { content: [{ type: "text", text: `Wilayah "${region}" tidak ditemukan.` }], isError: true };
-          }
-          domain = resolved.domainId;
-          domainName = resolved.domainName;
-        }
-
-        const spec = years ?? `${start_year}-${end_year}`;
-        const parsedYears = parseYearSpec(spec);
-        const yearList = parsedYears.years;
-
-        if (yearList.length === 0) {
-          return { content: [{ type: "text", text: "Rentang tahun tidak valid." }], isError: true };
-        }
-        if (yearList.length > 11) {
-          return {
-            content: [{ type: "text", text: "Rentang maksimal 10 tahun per panggilan. Pecah menjadi beberapa rentang." }],
-            isError: true,
-          };
-        }
-
-        const series = await buildRegionSeries(client, store, query, region, domain, domainName, {
-          years: yearList,
-          maxCandidates: 6,
+        const result = await getTrendService(client, resolver, store, {
+          query,
+          region,
+          wilayah,
+          start_year,
+          end_year,
+          years,
         });
 
-        if (series.points.length === 0) {
-          // Fallback: headline strategic indicators are often the only series
-          // BPS exposes for topics like inflasi (monthly, latest month only).
-          try {
-            const indicators = await client.listStrategicIndicators(domain);
-            const kw = normalizeKeyword(query);
-            for (const ind of indicators.data ?? []) {
-              const title = ind.title.toLowerCase();
-              if (
-                title.includes(kw) ||
-                kw.split(/\s+/).some((word) => word.length > 2 && title.includes(word))
-              ) {
-                const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
-                const unit = formatUnit(ind.unit);
-                const headline = [
-                  `## Tren/Headline ${ind.title}`,
-                  `**Wilayah:** ${domainName} (${domain})`,
-                  "",
-                  "*Catatan: menggunakan data headline indikator strategis karena variabel time-series tidak ditemukan.*",
-                  "",
-                  "| Periode | Nilai |",
-                  "| --- | --- |",
-                  `| ${ind.periode} | ${val}${unit ? ` ${unit}` : ""} |`,
-                ];
-                if (ind.name) headline.push("", `_${ind.name}_`);
-                return { content: [{ type: "text", text: appendAttribution(headline.join("\n")) }] };
-              }
-            }
-          } catch {
-            // fall through to the diagnostic message
+        if (result.points.length === 0) {
+          if (result.headlineFallback) {
+            const ind = result.headlineFallback;
+            const val = typeof ind.value === "number" ? ind.value.toLocaleString("id-ID") : ind.value;
+            const headline = [
+              `## Tren/Headline ${ind.title}`,
+              `**Wilayah:** ${result.domainName} (${result.domain})`,
+              "",
+              "*Catatan: menggunakan data headline indikator strategis karena variabel time-series tidak ditemukan.*",
+              "",
+              "| Periode | Nilai |",
+              "| --- | --- |",
+              `| ${ind.periode} | ${val}${ind.unit ? ` ${ind.unit}` : ""} |`,
+            ];
+            if (ind.name) headline.push("", `_${ind.name}_`);
+            return { content: [{ type: "text", text: appendAttribution(headline.join("\n")) }] };
           }
 
-          const notes = series.notes.length > 0 ? `\n\n${series.notes.join("\n")}` : "";
+          const notes = result.notes.length > 0 ? `\n\n${result.notes.join("\n")}` : "";
           return {
             content: [{
               type: "text",
               text: appendAttribution(
-                `Tidak ada data "${query}" untuk ${domainName} pada ${spec}.${notes}\n\n` +
-                `**Saran:** find_variable(keyword="${query}", domain="${domain}") untuk melihat variabel dan cakupan tahunnya.`
+                `Tidak ada data "${query}" untuk ${result.domainName} pada ${result.spec}.${notes}\n\n` +
+                `**Saran:** find_variable(keyword="${query}", domain="${result.domain}") untuk melihat variabel dan cakupan tahunnya.`
               ),
             }],
           };
         }
 
-        const unit = formatUnit(series.unit);
+        const unit = result.unit ?? "";
         const lines = [
-          `## Tren ${series.varTitle}${unit ? ` (${unit})` : ""}`,
-          `**Wilayah:** ${domainName} | **Periode:** ${yearList[0]}–${yearList[yearList.length - 1]}`,
+          `## Tren ${result.varTitle}${unit ? ` (${unit})` : ""}`,
+          `**Wilayah:** ${result.domainName} | **Periode:** ${result.yearList[0]}–${result.yearList[result.yearList.length - 1]}`,
         ];
-        if (series.seriesLabel) {
-          lines.push(`**Seri:** ${series.seriesLabel}`);
-          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|semester/i.test(series.seriesLabel)) {
-            lines.push(`_Catatan: variabel ini punya beberapa sub-periode; nilai yang ditampilkan adalah seri ${series.seriesLabel} pada setiap tahun._`);
+        if (result.seriesLabel) {
+          lines.push(`**Seri:** ${result.seriesLabel}`);
+          if (/januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|semester/i.test(result.seriesLabel)) {
+            lines.push(
+              `_Catatan: variabel ini punya beberapa sub-periode; nilai yang ditampilkan adalah seri ${result.seriesLabel} pada setiap tahun._`
+            );
           }
         }
-        if (series.missingYears.length > 0 && series.points.length > 0) {
-          lines.push(`**Catatan:** tahun ${series.missingYears.join(", ")} tidak tersedia untuk variabel ini.`);
+        if (result.missingYears.length > 0 && result.points.length > 0) {
+          lines.push(`**Catatan:** tahun ${result.missingYears.join(", ")} tidak tersedia untuk variabel ini.`);
         }
         lines.push("", "| Periode | Nilai | Perubahan |", "| --- | --- | --- |");
 
-        for (let i = 0; i < series.points.length; i++) {
-          const point = series.points[i];
+        for (let i = 0; i < result.points.length; i++) {
+          const point = result.points[i];
           let change = "-";
           if (i > 0) {
-            const previous = series.points[i - 1].value;
+            const previous = result.points[i - 1].value;
             const diff = point.value - previous;
             if (previous !== 0) {
               const pct = ((diff / previous) * 100).toFixed(1);
@@ -462,11 +301,11 @@ Contoh query user yang cocok untuk tool ini:
           lines.push(`| ${point.year} | ${point.value.toLocaleString("id-ID")} | ${change} |`);
         }
 
-        if (series.points.length >= 2) {
-          const first = series.points[0];
-          const last = series.points[series.points.length - 1];
+        if (result.points.length >= 2) {
+          const first = result.points[0];
+          const last = result.points[result.points.length - 1];
           if (first.value !== 0) {
-            const totalChange = ((last.value - first.value) / first.value * 100).toFixed(1);
+            const totalChange = (((last.value - first.value) / first.value) * 100).toFixed(1);
             const trend = last.value > first.value ? "naik" : last.value < first.value ? "turun" : "stabil";
             lines.push("");
             lines.push(`**Tren:** ${trend} ${totalChange}% dari ${first.year} ke ${last.year}`);
@@ -475,7 +314,10 @@ Contoh query user yang cocok untuk tool ini:
 
         return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal mengambil data tren" }], isError: true };
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal mengambil data tren" }],
+          isError: true,
+        };
       }
     }
   );
@@ -512,22 +354,18 @@ Contoh query user yang cocok:
     },
     async ({ query, top_n, order, year, level, provinces, format, period_mode }) => {
       try {
-        const useKabkota = level === "kabkota";
+        const result = await getRankingService(client, resolver, store, {
+          query,
+          level,
+          top_n,
+          order,
+          year,
+          period_mode,
+          provinces,
+        });
 
-        if (useKabkota) {
-          const provinceList = provinces
-            ? provinces.split(",").map((name) => name.trim()).filter(Boolean)
-            : undefined;
-          const ranking = await rankKabkota(client, resolver, {
-            query,
-            year,
-            topN: Math.min(top_n, 200),
-            order,
-            provinces: provinceList,
-            periodMode: period_mode,
-          });
-
-          if (ranking.rows.length === 0) {
+        if (result.level === "kabkota") {
+          if (result.rows.length === 0) {
             return {
               content: [{
                 type: "text",
@@ -548,105 +386,95 @@ Contoh query user yang cocok:
                 type: "text",
                 text: JSON.stringify({
                   level: "kabkota",
-                  indicator: ranking.indicatorLabel,
-                  order,
-                  rows: ranking.rows,
-                  totalRegions: ranking.totalRegions,
-                  provincesCovered: ranking.provincesCovered,
-                  periods: ranking.periods,
-                  targetYear: ranking.targetYear,
-                  missingProvinces: ranking.missing,
+                  indicator: result.indicator,
+                  order: result.order,
+                  rows: result.rows,
+                  totalRegions: result.totalRegions,
+                  provincesCovered: result.provincesCovered,
+                  periods: result.periods,
+                  targetYear: result.targetYear,
+                  missingProvinces: result.missingProvinces,
                 }, null, 2),
               }],
             };
           }
 
           return {
-            content: [{ type: "text", text: appendAttribution(formatKabkotaRanking(ranking, { order, query })) }],
+            content: [{
+              type: "text",
+              text: appendAttribution(formatKabkotaRanking(result.rawKabkotaResult, { order, query })),
+            }],
           };
         }
 
-        // For ranking, we need national-level data that breaks down by province
-        // Prefer variables with "Provinsi" in title for proper provincial breakdown
-        const varData = await resolveVariableForRanking(client, store, query);
-        if (!varData) {
-          return { content: [{ type: "text", text: appendAttribution(`Tidak ditemukan variabel "${query}" untuk ranking nasional.`) }] };
+        // level === "provinsi"
+        if (result.errorReason === "no_variable") {
+          return {
+            content: [{ type: "text", text: appendAttribution(`Tidak ditemukan variabel "${query}" untuk ranking nasional.`) }],
+          };
         }
-
-        const periods = await listAllPeriodsSafe(client, "0000", varData.var_id);
-        let selectedPeriod = year
-          ? periods.find((period) => getPeriodLabel(period).includes(year))
-          : periods[0];
-        if (!selectedPeriod) selectedPeriod = periods[0];
-
-        const selectedPeriodId = selectedPeriod ? getPeriodId(selectedPeriod) : "";
-        const periodLabel = selectedPeriod ? getPeriodLabel(selectedPeriod) : "";
-
-        const result = await client.getDynamicData("0000", String(varData.var_id), selectedPeriodId || undefined);
-        if (!result.datacontent || Object.keys(result.datacontent).length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Data ranking tidak tersedia.`) }] };
+        if (result.errorReason === "no_data") {
+          return {
+            content: [{ type: "text", text: appendAttribution(`Data ranking tidak tersedia.`) }],
+          };
         }
-
-        const entries = getVervarEntries(result).filter(
-          (entry) => !/^(indonesia|nasional|total|jumlah)$/i.test(entry.label.trim())
-        );
-        if (entries.length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Data ranking tidak dapat di-parse. Coba gunakan find_data untuk masing-masing wilayah.`) }] };
-        }
-        if (entries.length > 40) {
+        if (result.errorReason === "too_many_categories") {
           return {
             content: [{
               type: "text",
               text: appendAttribution(
-                `Variabel "${getVariableTitle(varData)}" memiliki ${entries.length} kategori (bukan level provinsi). ` +
+                `Variabel "${result.indicator}" memiliki ${result.categoryCount} kategori (bukan level provinsi). ` +
                 `Gunakan find_data untuk wilayah tertentu atau find_variable untuk memilih variabel provinsi.`
               ),
             }],
           };
         }
-
-        const valuesByVervar = new Map<string, number>();
-        for (const [key, value] of Object.entries(result.datacontent)) {
-          if (typeof value !== "number") continue;
-          const vervarId = extractVervarId(key, result);
-          if (vervarId && !valuesByVervar.has(vervarId)) valuesByVervar.set(vervarId, value);
+        if (result.errorReason === "unparseable" || result.rows.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: appendAttribution(`Data ranking tidak dapat di-parse. Coba gunakan find_data untuk masing-masing wilayah.`),
+            }],
+          };
         }
 
-        const rankings = entries
-          .filter((entry) => valuesByVervar.has(entry.id))
-          .map((entry) => ({ province: entry.label, value: valuesByVervar.get(entry.id)! }));
-
-        if (rankings.length === 0) {
-          return { content: [{ type: "text", text: appendAttribution(`Data ranking tidak dapat di-parse. Coba gunakan find_data untuk masing-masing wilayah.`) }] };
+        if (format === "json") {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                level: "provinsi",
+                indicator: result.indicator,
+                unit: result.unit,
+                order: result.order,
+                targetYear: result.targetYear,
+                periods: result.periods,
+                totalRegions: result.totalRegions,
+                rows: result.rows,
+              }, null, 2),
+            }],
+          };
         }
 
-        // Sort
-        rankings.sort((a, b) => order === "highest" ? b.value - a.value : a.value - b.value);
-        const display = rankings.slice(0, Math.min(top_n, rankings.length));
-
-        // Format
-        const unit = formatUnit(getVariableUnit(varData) ?? varData.unit);
+        const unit = result.unit ?? "";
         const lines = [
-          `## Ranking: ${getVariableTitle(varData) || varData.title}${unit ? ` (${unit})` : ""}`,
-          `**Urutan:** ${order === "highest" ? "Tertinggi" : "Terendah"} | **Periode:** ${periodLabel || year || "Terbaru"}`,
+          `## Ranking: ${result.indicator}${unit ? ` (${unit})` : ""}`,
+          `**Urutan:** ${order === "highest" ? "Tertinggi" : "Terendah"} | **Periode:** ${result.periodLabel || year || "Terbaru"}`,
           "",
           "| # | Wilayah | Nilai |",
           "| --- | --- | --- |",
         ];
 
-        for (let i = 0; i < display.length; i++) {
-          lines.push(`| ${i + 1} | ${display[i].province} | ${display[i].value.toLocaleString("id-ID")} |`);
+        for (const row of result.rows) {
+          lines.push(`| ${row.rank} | ${row.province} | ${row.value.toLocaleString("id-ID")} |`);
         }
 
-        if (rankings.length > display.length) {
+        if (result.totalRegions > result.rows.length) {
           lines.push("");
-          lines.push(`_Menampilkan ${display.length} dari ${rankings.length} wilayah._`);
+          lines.push(`_Menampilkan ${result.rows.length} dari ${result.totalRegions} wilayah._`);
         }
 
-        // Point agents at the kab/kota equivalent so they do not sweep the
-        // provinces by hand after getting a province-only answer.
-        const kabkotaIndicator = findKabkotaIndicator(query);
-        if (kabkotaIndicator) {
+        if (result.hasKabkotaAlternative) {
           lines.push("");
           lines.push(
             `_Butuh level kabupaten/kota? Panggil \`get_ranking(query="${query}", level="kabkota")\` — ` +
@@ -656,78 +484,11 @@ Contoh query user yang cocok:
 
         return { content: [{ type: "text", text: appendAttribution(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal mengambil data ranking" }], isError: true };
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : "Gagal mengambil data ranking" }],
+          isError: true,
+        };
       }
     }
   );
-}
-
-// --- Helper functions ---
-
-async function listAllPeriodsSafe(client: BpsClient, domain: string, varId: number) {
-  const maybeAll = (client as BpsClient & {
-    listAllPeriods?: (domain?: string, varId?: number) => Promise<Array<Record<string, unknown>>>;
-  }).listAllPeriods;
-  if (typeof maybeAll === "function") {
-    return maybeAll.call(client, domain, varId);
-  }
-  return client.listPeriods(domain, varId);
-}
-
-/** Resolve a national variable that breaks down by province, for rankings. */
-async function resolveVariableForRanking(
-  client: BpsClient,
-  store: IPersistentStore | null,
-  query: string
-): Promise<{ var_id: number; title: string; sub_name: string; unit?: string } | null> {
-  // Repeat rankings reuse the national table learned last time (one period
-  // listing) instead of sweeping subjects and variables again.
-  const learned = await lookupVar(query, "0000", store);
-  if (learned) {
-    try {
-      const periods = await listAllPeriodsSafe(client, "0000", learned.var_id);
-      const hasRecent = periods.some((period) => {
-        const year = Number(getPeriodLabel(period).match(/\d{4}/)?.[0] ?? 0);
-        return year >= 2020;
-      });
-      if (hasRecent) return learned;
-    } catch {
-      // Fall through to the search below.
-    }
-  }
-
-  const candidates = await searchVariables(client, "0000", query, {
-    maxSubjects: 8,
-    maxPagesPerSubject: 6,
-    maxCandidates: 40,
-  });
-  if (candidates.length === 0) {
-    return resolveVariableShared(client, store, query, "0000");
-  }
-
-  const provinceCandidates = candidates.filter(
-    (candidate) => /provinsi/i.test(candidate.title) && !/metode lama/i.test(candidate.title)
-  );
-  const pool = provinceCandidates.length > 0 ? provinceCandidates : candidates;
-
-  const scored = pool
-    .map((candidate) => ({
-      candidate,
-      score:
-        candidate.score +
-        (/persentase|tingkat|indeks|rasio/i.test(candidate.title) ? 10 : 0) -
-        (/kabupaten|kecamatan/i.test(candidate.title) ? 20 : 0),
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  for (const { candidate } of scored.slice(0, 5)) {
-    const periods = await listAllPeriodsSafe(client, "0000", candidate.var_id);
-    const hasRecent = periods.some((period) => {
-      const year = Number(getPeriodLabel(period).match(/\d{4}/)?.[0] ?? 0);
-      return year >= 2020;
-    });
-    if (hasRecent) return candidate;
-  }
-
-  return scored[0]?.candidate ?? null;
 }

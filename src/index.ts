@@ -16,19 +16,38 @@ async function main(): Promise<void> {
     const config = loadConfig();
     setLogLevel(config.logLevel);
 
-    logger.info("BPS MCP Server starting...");
+    logger.info(
+      config.codeMode
+        ? "BPS MCP Server starting in Code Mode (QuickJS sandbox)..."
+        : "BPS MCP Server starting..."
+    );
     logger.debug("Config loaded", {
       authType: config.authType,
       apiBaseUrl: config.apiBaseUrl,
       defaultLang: config.defaultLang,
       defaultDomain: config.defaultDomain,
       cacheEnabled: config.cacheEnabled,
+      codeMode: config.codeMode,
     });
 
     const auth = createAuthProvider(config);
     const cache = config.cacheEnabled ? new InMemoryCache(config.cacheMaxEntries) : null;
     const store = new FileStore(undefined, config.apiKey);
-    const { server } = createServer(config, auth, cache, store, pkg.version);
+
+    let server;
+    if (config.codeMode) {
+      // Lazy-load QuickJS WASM + Code Mode modules so standard stdio mode pays zero overhead.
+      const [{ createCodeModeServer }, { QuickJSExecutor }, { readCodeModeLimitsFromEnv }] =
+        await Promise.all([
+          import("./codemode/server.js"),
+          import("./codemode/quickjs-executor.js"),
+          import("./codemode/executor.js"),
+        ]);
+      const executor = new QuickJSExecutor(readCodeModeLimitsFromEnv());
+      ({ server } = createCodeModeServer(config, auth, cache, store, pkg.version, { executor }));
+    } else {
+      ({ server } = createServer(config, auth, cache, store, pkg.version));
+    }
 
     // The learned-variable store writes with a debounce; flush it on shutdown
     // so mappings are not lost when the MCP client closes the process.
