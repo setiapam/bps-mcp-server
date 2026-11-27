@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/setiapam/bps-mcp-server/compare/v0.19.0...v0.20.0) (2026-11-27)
+
+
+### Features
+
+* **codemode:** enable k3s Code Mode backend + sync shared secret in deploy workflow ([6dff27d](https://github.com/setiapam/bps-mcp-server/commit/6dff27d8da1a2d84bee2dccb7151fe30fc43ff34))
+* implement Code Mode with QuickJS sandbox, Worker proxy, and k3s backend ([b8d6348](https://github.com/setiapam/bps-mcp-server/commit/b8d63481bc92451e36288082ae8e32d0455e8907))
+
 ## [0.19.0](https://github.com/setiapam/bps-mcp-server/compare/v0.18.0...v0.19.0) (2026-11-15)
 
 
