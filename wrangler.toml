@@ -14,9 +14,9 @@ BPS_DEFAULT_LANG = "ind"
 BPS_DEFAULT_DOMAIN = "0000"
 
 # Pattern A (Hybrid Worker Free + k3s Homelab) Code Mode proxy:
-# Uncomment and set your Cloudflare Tunnel hostname once the k3s backend is deployed,
-# then set the shared secret via: npx wrangler secret put CODEMODE_SHARED_SECRET
-# CODEMODE_BACKEND_URL = "https://bps-codemode.murphi.my.id"
+# k3s backend already deployed at this hostname; shared secret is synced by the
+# "Deploy Workers" workflow from the CODEMODE_SHARED_SECRET repo secret.
+CODEMODE_BACKEND_URL = "https://bps-codemode.murphi.my.id"
 
 # KV namespace for BPS data caching
 [[kv_namespaces]]
